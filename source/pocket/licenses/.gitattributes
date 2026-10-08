@@ -1,0 +1,2 @@
+# Preserve third-party legal notices verbatim, including upstream whitespace.
+*.txt -whitespace
