@@ -1,0 +1,360 @@
+{
+  "schema": 1,
+  "inputs": [
+    {
+      "path": "dependencies/VexiiRiscv.bundle",
+      "size": 406964,
+      "sha256": "5bf74cdbfefc1aa984397d82fed0bd4f28048df64ccbe95d7697aa7d8770c086",
+      "compressed_sha256": "1ec5b59046584e66d7762cd1227b411357cf82ad9876d1dfa0cc5850afee30ec",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/5bf74cdbfefc1aa984397d82fed0bd4f28048df64ccbe95d7697aa7d8770c086/0000.part",
+          "size": 196608,
+          "sha256": "753a1d9be00befadba561e15ad798283120489dd4e274e0d93b39f921487b961"
+        },
+        {
+          "path": ".inputs/5bf74cdbfefc1aa984397d82fed0bd4f28048df64ccbe95d7697aa7d8770c086/0001.part",
+          "size": 196608,
+          "sha256": "c5643590dafa0e04c04a3f726dcc4397b7deac1f62af08f49ccead698925b9a6"
+        },
+        {
+          "path": ".inputs/5bf74cdbfefc1aa984397d82fed0bd4f28048df64ccbe95d7697aa7d8770c086/0002.part",
+          "size": 13644,
+          "sha256": "4b417233502a1b5e8b672644d3c502dea9bdbd902b5cc1cd06d8a6c5ca50290e"
+        }
+      ]
+    },
+    {
+      "path": "dependencies/musl-1.2.5.tar.gz",
+      "size": 1080786,
+      "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
+      "compressed_sha256": "aec2e80706c3df1755e556fd07440ce2f4a02873b5264eddc7a364ba3200c643",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0000.part",
+          "size": 196608,
+          "sha256": "ddfeb708119c73e20f74c71c65aba1648460eeabe364cc8af044102ae6c85d10"
+        },
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0001.part",
+          "size": 196608,
+          "sha256": "f5dd3a2fa8ec8127c88c39294562961cc307d66501643b0d93cb6ccedccb847b"
+        },
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0002.part",
+          "size": 196608,
+          "sha256": "0ffa072fcb9690fbddef90824144badd775b02e38e4d87ff3959d50f74f431d4"
+        },
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0003.part",
+          "size": 196608,
+          "sha256": "9e515485a17e2e5c24db72cffb36fffb49628048ced5a7031a550bdb109b5932"
+        },
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0004.part",
+          "size": 196608,
+          "sha256": "1da3c04bf91b51f47c1e34682d1e2bd6b38942f1248a5cd9c9fc61b74fbea4a8"
+        },
+        {
+          "path": ".inputs/a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4/0005.part",
+          "size": 93616,
+          "sha256": "bff81026f87c4a2b57564f7631ca33020b82d19772f2b8b317367aa4ed785c24"
+        }
+      ]
+    },
+    {
+      "path": "dependencies/rvls.bundle",
+      "size": 101705,
+      "sha256": "529874e602b0e01fd5ab00c44701c75fc0a1707c05b63275e85796c82ee85e2b",
+      "compressed_sha256": "3de9833ebb24922ac4bd9f91e84cbcda6abbe62b9922595ed1fd7260d0f99f5e",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/529874e602b0e01fd5ab00c44701c75fc0a1707c05b63275e85796c82ee85e2b/0000.part",
+          "size": 101715,
+          "sha256": "3de9833ebb24922ac4bd9f91e84cbcda6abbe62b9922595ed1fd7260d0f99f5e"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/codepage.h",
+      "size": 413192,
+      "sha256": "9aa2507e3ef56ebba83a4d2e772b8b9aae5cd8c257f23fd00bb78b9d325de715",
+      "compressed_sha256": "d85deb8af1b9865934fb963a3a8775b497caddb58ce8b0ef0be45bb71d04cf87",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/9aa2507e3ef56ebba83a4d2e772b8b9aae5cd8c257f23fd00bb78b9d325de715/0000.part",
+          "size": 138299,
+          "sha256": "d85deb8af1b9865934fb963a3a8775b497caddb58ce8b0ef0be45bb71d04cf87"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/fight.c",
+      "size": 144742,
+      "sha256": "6d71434242de081d3cd2d5a0578d05485948e7c6cd507407805d0eafa3e761f5",
+      "compressed_sha256": "c575a149156a983ab2b4f889bda2e6ee146aa2c66e9ff7d83baacc5d5d5cd978",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/6d71434242de081d3cd2d5a0578d05485948e7c6cd507407805d0eafa3e761f5/0000.part",
+          "size": 20702,
+          "sha256": "c575a149156a983ab2b4f889bda2e6ee146aa2c66e9ff7d83baacc5d5d5cd978"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/fontglyph.h",
+      "size": 5562982,
+      "sha256": "483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895",
+      "compressed_sha256": "a3cc2ed7a86157e8af678c2285a31fb2997bf85d0772faee8175d50c85cd9cad",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895/0000.part",
+          "size": 196608,
+          "sha256": "a899a28478376e8ca41c7fe81e676499bb500c9b12438b8efc11689aed51ada2"
+        },
+        {
+          "path": ".inputs/483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895/0001.part",
+          "size": 196608,
+          "sha256": "eb98b889ca4758812770299eee09466241b0f5890059c77e13911cd06af26677"
+        },
+        {
+          "path": ".inputs/483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895/0002.part",
+          "size": 196608,
+          "sha256": "3d9ab38cafdf373473d12dcc2bc5efd7d6979780799893d5aab16825c1c8033f"
+        },
+        {
+          "path": ".inputs/483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895/0003.part",
+          "size": 196608,
+          "sha256": "6fcbf074b008f97a6dadcd9f9bba14fabbe90ed30791d3e9bc9b5409b6aa0b1a"
+        },
+        {
+          "path": ".inputs/483a1fa25c0233d1200c5d753b7cf2766de4ee6cdad3bdf7f9f7e50473e53895/0004.part",
+          "size": 134299,
+          "sha256": "9ad072cb2a69220901abf04b3a40ef98fd59c0656ca774a453e65c987178a910"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/fontglyph_cn.h",
+      "size": 1883642,
+      "sha256": "6774d073da6c87fa44e37c62821bea5bff8511b7c5d14407804b51219adeae63",
+      "compressed_sha256": "4c6bb233048643308c56aa86b0cf981cd2d32f0ec5080bbdb3d1beff3225a182",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/6774d073da6c87fa44e37c62821bea5bff8511b7c5d14407804b51219adeae63/0000.part",
+          "size": 196608,
+          "sha256": "2a706324554739a67e018bf12f6db6fb691053aded280f2b1650c12317623dda"
+        },
+        {
+          "path": ".inputs/6774d073da6c87fa44e37c62821bea5bff8511b7c5d14407804b51219adeae63/0001.part",
+          "size": 50460,
+          "sha256": "99440da7e7c716c4624ebd880b406ea490f2e00a7344f472b0ed3667fbf9fe06"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/fontglyph_jp.h",
+      "size": 1465641,
+      "sha256": "22c15bf3479978a8c363512228e26afd62a934e89cbd5e8914a0d40995724c35",
+      "compressed_sha256": "af7d87c13e39346010059bbacc2899607e7e847b67123ab90e59efead90c37f2",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/22c15bf3479978a8c363512228e26afd62a934e89cbd5e8914a0d40995724c35/0000.part",
+          "size": 196608,
+          "sha256": "508ae70463e2666e94049f22dbedbd0cc812734ab7907aae6b172008922cb68e"
+        },
+        {
+          "path": ".inputs/22c15bf3479978a8c363512228e26afd62a934e89cbd5e8914a0d40995724c35/0001.part",
+          "size": 30424,
+          "sha256": "9b83f87d01c560ac88237a884cb0724ce8c8cbb4e16bb07e818d097fc3154043"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/fontglyph_tw.h",
+      "size": 2946041,
+      "sha256": "74c62ea859333d724aae7e861eb35b1c868979a10c25718fbef76640f39c9ff8",
+      "compressed_sha256": "7a303c1b63efcae61cc6e044693b658268df7d3a560623e6ba3cd7e08cfd7527",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/74c62ea859333d724aae7e861eb35b1c868979a10c25718fbef76640f39c9ff8/0000.part",
+          "size": 196608,
+          "sha256": "8bf6bed6615189b4b1ebae82beef2875292e0ccbc5d2be90d84184552b2058fe"
+        },
+        {
+          "path": ".inputs/74c62ea859333d724aae7e861eb35b1c868979a10c25718fbef76640f39c9ff8/0001.part",
+          "size": 196608,
+          "sha256": "dcad8512d491dfad5f8659a9111bc5ac56ef4b6197a79c1b60d9bcd2fd67c691"
+        },
+        {
+          "path": ".inputs/74c62ea859333d724aae7e861eb35b1c868979a10c25718fbef76640f39c9ff8/0002.part",
+          "size": 42926,
+          "sha256": "4bd9e52273f91fb170d36f7d66436a725c9fa6adb8580809b96244e6ca16e2cf"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/libmad/rq_table.dat",
+      "size": 485879,
+      "sha256": "125186cf44544395db737348bec72f67d7a234f207b9992ed90c4fa4fecaf4e7",
+      "compressed_sha256": "a38230526a56c47ddf044d14bb42fc7d3afd84af4234b615132d163fd293c6fe",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/125186cf44544395db737348bec72f67d7a234f207b9992ed90c4fa4fecaf4e7/0000.part",
+          "size": 108948,
+          "sha256": "a38230526a56c47ddf044d14bb42fc7d3afd84af4234b615132d163fd293c6fe"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/liboggvorbis/src/books/coupled/res_books_51.h",
+      "size": 459668,
+      "sha256": "a3f22cb151cc658a134b6799897bdf45c75c4816f20d468d6f4e8391cf549ae5",
+      "compressed_sha256": "6bcb8ad77854a652ed6487611a968cacf42bd1ace1ed822e5615bd8fd190e038",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/a3f22cb151cc658a134b6799897bdf45c75c4816f20d468d6f4e8391cf549ae5/0000.part",
+          "size": 60368,
+          "sha256": "6bcb8ad77854a652ed6487611a968cacf42bd1ace1ed822e5615bd8fd190e038"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/liboggvorbis/src/books/coupled/res_books_stereo.h",
+      "size": 629613,
+      "sha256": "a17994e45617ca20d5ed1aa48a8a3f2382b0abb20fe96e6a985066947ab49b21",
+      "compressed_sha256": "2a87427b808033e44dbe72bd923fd6205abcf445e3e36e9ac3458c01345e2b4e",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/a17994e45617ca20d5ed1aa48a8a3f2382b0abb20fe96e6a985066947ab49b21/0000.part",
+          "size": 33461,
+          "sha256": "2a87427b808033e44dbe72bd923fd6205abcf445e3e36e9ac3458c01345e2b4e"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/liboggvorbis/src/books/uncoupled/res_books_uncoupled.h",
+      "size": 241309,
+      "sha256": "b81bf4b35eed121d0344cb0bdaa237a325fdf7de712cc5f475df76ebf3a6c130",
+      "compressed_sha256": "335f2b8effa8833aad98609f0c16293bfb68ce5d7f34496b1a2c52ecb7e66a9c",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/b81bf4b35eed121d0344cb0bdaa237a325fdf7de712cc5f475df76ebf3a6c130/0000.part",
+          "size": 26625,
+          "sha256": "335f2b8effa8833aad98609f0c16293bfb68ce5d7f34496b1a2c52ecb7e66a9c"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/liboggvorbis/src/window.c",
+      "size": 128709,
+      "sha256": "a8909dd727cbe99936075a80ea3d6bb046c78de381bcd15eb104d66191386bfe",
+      "compressed_sha256": "7b8893d893b2d54e5029dedab32460ec8da31277ea7336fa025461311b1e5255",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/a8909dd727cbe99936075a80ea3d6bb046c78de381bcd15eb104d66191386bfe/0000.part",
+          "size": 48974,
+          "sha256": "7b8893d893b2d54e5029dedab32460ec8da31277ea7336fa025461311b1e5255"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/libopusfile/include/opusfile.h",
+      "size": 116131,
+      "sha256": "2664b8274062946853f698769b78d31859012628775d2cc32d37d866c6c73cf3",
+      "compressed_sha256": "88d7962f9cf999492074d72eec2938de2cdcd19429393d4b01197e9618fcd8a9",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/2664b8274062946853f698769b78d31859012628775d2cc32d37d866c6c73cf3/0000.part",
+          "size": 24081,
+          "sha256": "88d7962f9cf999492074d72eec2938de2cdcd19429393d4b01197e9618fcd8a9"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/libopusfile/src/http.c",
+      "size": 132013,
+      "sha256": "192a3e88f783ff0e546426a12eb7c6cc7ceb51203524b5a8e792ded35a44d47b",
+      "compressed_sha256": "18e272ae6f5b8d51ac6b0db345141646eca7e0cfb7bd1c64bc4553a8fda96353",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/192a3e88f783ff0e546426a12eb7c6cc7ceb51203524b5a8e792ded35a44d47b/0000.part",
+          "size": 37097,
+          "sha256": "18e272ae6f5b8d51ac6b0db345141646eca7e0cfb7bd1c64bc4553a8fda96353"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/libopusfile/src/opusfile.c",
+      "size": 127968,
+      "sha256": "75c8eb6e8dfa30ab7c30f8facbebd0458d589e5af14c5d9afaf6b2abbaa1d0e9",
+      "compressed_sha256": "029ca5cd52314a974462880f2ff9fb4b4f2497fe8bd0718df7eb60a1970c316b",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/75c8eb6e8dfa30ab7c30f8facbebd0458d589e5af14c5d9afaf6b2abbaa1d0e9/0000.part",
+          "size": 34025,
+          "sha256": "029ca5cd52314a974462880f2ff9fb4b4f2497fe8bd0718df7eb60a1970c316b"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/libretro/sdl-libretro/libretro.h",
+      "size": 231247,
+      "sha256": "7becb4cda7cba33a6dafdc5aa39530fd88e1a7a59b7abd2b2c5c4f8da4d3fdc8",
+      "compressed_sha256": "0987fc5592075c7601f2c988efd75935d5c29c115bbf1428e29e2fab315662a1",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/7becb4cda7cba33a6dafdc5aa39530fd88e1a7a59b7abd2b2c5c4f8da4d3fdc8/0000.part",
+          "size": 50081,
+          "sha256": "0987fc5592075c7601f2c988efd75935d5c29c115bbf1428e29e2fab315662a1"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/overlay.c",
+      "size": 549978,
+      "sha256": "93ac43e5da91fcbd6cb75d01e01caf6fd612fc88cddef91218ad1bf1a3d0b9ad",
+      "compressed_sha256": "59a2d918ae1fe8bbcf0ad78245ca634ce2c6887dc7aacc33d241cd5c2dd7d182",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/93ac43e5da91fcbd6cb75d01e01caf6fd612fc88cddef91218ad1bf1a3d0b9ad/0000.part",
+          "size": 132553,
+          "sha256": "59a2d918ae1fe8bbcf0ad78245ca634ce2c6887dc7aacc33d241cd5c2dd7d182"
+        }
+      ]
+    },
+    {
+      "path": "source/sdlpal/stb_image.h",
+      "size": 260288,
+      "sha256": "8ca8f6c0024d6d0bd6b623d204f264afe13a3c6b17444862021c4b4d25cfa419",
+      "compressed_sha256": "f0a1ec22838659956ae9d6b2f43a605b2f44370ff9f28a25d286f3ac18d7c6a6",
+      "encoding": "zlib",
+      "parts": [
+        {
+          "path": ".inputs/8ca8f6c0024d6d0bd6b623d204f264afe13a3c6b17444862021c4b4d25cfa419/0000.part",
+          "size": 63465,
+          "sha256": "f0a1ec22838659956ae9d6b2f43a605b2f44370ff9f28a25d286f3ac18d7c6a6"
+        }
+      ]
+    }
+  ]
+}
