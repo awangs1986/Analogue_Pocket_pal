@@ -1,0 +1,364 @@
+diff --git a/src/fpga/targets/pocket/ap_core.qsf b/src/fpga/targets/pocket/ap_core.qsf
+index 46d92d2..71e1673 100644
+--- a/src/fpga/targets/pocket/ap_core.qsf
++++ b/src/fpga/targets/pocket/ap_core.qsf
+@@ -780,6 +780,7 @@ set_global_assignment -name QIP_FILE apf/apf.qip
+ set_global_assignment -name QIP_FILE apf/mf_ddio_bidir_12.qip
+ set_global_assignment -name VERILOG_FILE core_top.v
+ set_global_assignment -name VERILOG_FILE core_bridge_cmd.v
++set_global_assignment -name VERILOG_FILE pal_display_mode_video.v
+ set_global_assignment -name MIF_FILE firmware.mif
+ set_global_assignment -name VERILOG_FILE io_sdram.v
+ set_global_assignment -name QIP_FILE megafunctions/mf_pllbase.qip
+diff --git a/src/fpga/targets/pocket/core_bridge_cmd.v b/src/fpga/targets/pocket/core_bridge_cmd.v
+index 4e0ec25..7eaeb97 100644
+--- a/src/fpga/targets/pocket/core_bridge_cmd.v
++++ b/src/fpga/targets/pocket/core_bridge_cmd.v
+@@ -15,7 +15,11 @@
+ // because it should report PLL lock status
+ //
+ 
+-module core_bridge_cmd (
++module core_bridge_cmd #(
++    // 100 ms at clk_74a=74.25 MHz. Host timeout is not specified by APF;
++    // this is our bounded failure guard, not a claim about host behavior.
++    parameter [23:0] DISPLAY_MODE_TIMEOUT_CYCLES = 24'd7425000
++) (
+ 
+ input   wire            clk,
+ output  reg             reset_n,
+@@ -65,6 +69,12 @@ input   wire    [31:0]  savestate_size,
+ input   wire    [31:0]  savestate_maxloadsize,
+ 
+ output  reg             osnotify_inmenu,
++// APF 00B8 parameter [15:8] is the mode; bit 0 requests grayscale.
++output  reg     [7:0]   osnotify_display_mode,
++output  reg             osnotify_grayscale,
++output  reg             osnotify_display_request, // one-outstanding toggle mailbox
++input   wire            osnotify_display_ack,     // synchronized to clk
++input   wire            osnotify_grayscale_applied, // synchronized to clk
+ 
+ output  reg             savestate_start,        // core should detect rising edge on this,
+ input   wire            savestate_start_ack,    // and then assert ack for at least 1 cycle
+@@ -108,7 +118,8 @@ output  wire    [31:0]  datatable_q
+     reg     [31:0]  bridge_rd_data_out;
+     
+     wire endian_little_s;
+-synch_3 s01(bridge_endian_little, endian_little_s, clk);
++synch_3 s01(.i(bridge_endian_little), .o(endian_little_s), .clk(clk),
++            .rise(), .fall());
+ 
+ always @(*) begin
+     bridge_rd_data <= endian_little_s ? {
+@@ -154,10 +165,20 @@ localparam  [3:0]   ST_IDLE         = 'd0;
+ localparam  [3:0]   ST_PARSE        = 'd1;
+ localparam  [3:0]   ST_WORK         = 'd2;
+ localparam  [3:0]   ST_CLEAR_DATATABLE = 'd3;
++localparam  [3:0]   ST_DISPLAY_WAIT = 'd4;
+ localparam  [3:0]   ST_DONE_OK      = 'd13;
+ localparam  [3:0]   ST_DONE_CODE    = 'd14;
+ localparam  [3:0]   ST_DONE_ERR     = 'd15;
+     reg     [3:0]   hstate;
++    reg     [23:0]  display_mode_wait_cycles;
++    reg     [7:0]   display_mode_requested;
++    reg             display_grayscale_committed;
++    // 0=ready; 1=drain a canceled request; 2=wait for explicit rollback ACK.
++    // Never reuse a toggle while a previous transaction can still arrive.
++    reg     [1:0]   display_recovery;
++    wire display_request_applied =
++        (osnotify_display_ack == osnotify_display_request) &&
++        (osnotify_grayscale_applied == osnotify_grayscale);
+     
+ // target
+     
+@@ -199,6 +220,16 @@ initial begin
+     savestate_start <= 0;
+     savestate_load <= 0;
+     osnotify_inmenu <= 0;
++    osnotify_display_mode <= 8'h00;
++    osnotify_grayscale <= 1'b0;
++    hstate <= ST_IDLE;
++    tstate <= TARG_ST_IDLE;
++    host_cmd_start <= 1'b0;
++    display_mode_wait_cycles <= 24'd0;
++    display_mode_requested <= 8'h00;
++    display_grayscale_committed <= 1'b0;
++    osnotify_display_request <= 1'b0;
++    display_recovery <= 2'd0;
+     shutdown_pending <= 0;
+ 
+     status_setup_done_queue <= 0;
+@@ -318,6 +349,20 @@ always @(posedge clk) begin
+     
+     
+     
++    // Recover canceled display transactions independently of host commands.
++    // If video is stopped, keep the mailbox stable and reject new 00B8s;
++    // never wrap/reuse its toggle and mistake old feedback for a new ACK.
++    case (display_recovery)
++    2'd1: if (display_request_applied) begin
++        osnotify_grayscale <= display_grayscale_committed;
++        osnotify_display_request <= ~osnotify_display_request;
++        display_recovery <= 2'd2;
++    end
++    2'd2: if (display_request_applied) begin
++        display_recovery <= 2'd0;
++    end
++    endcase
++
+     // host > target command executer
+     case(hstate)
+     ST_IDLE: begin
+@@ -511,10 +556,20 @@ always @(posedge clk) begin
+             hstate <= ST_DONE_OK;
+         end
+         16'h00B8: begin
+-            // OS Notify: Display Mode — the docs note some modes mandate
+-            // acknowledgment; ACK OK.  (Grayscale-mandating modes would
+-            // additionally want grayscale rendering — not gated here.)
+-            hstate <= ST_DONE_OK;
++            host_40 <= 32'h00000000; // never leak stale grayscale acceptance
++            if (display_recovery != 0) begin
++                // An expired request is still in flight or being undone.
++                // Do not ACK a new command from a stale gray-value match.
++                hstate <= ST_DONE_ERR;
++            end else begin
++                // Honor bit 0, not an inferred ID range. Hold this payload
++                // until its fresh toggle ACK, including after a timeout.
++                display_mode_requested <= host_20[15:8];
++                display_mode_wait_cycles <= 24'd0;
++                osnotify_grayscale <= host_20[0];
++                osnotify_display_request <= ~osnotify_display_request;
++                hstate <= ST_DISPLAY_WAIT;
++            end
+         end
+         default: begin
+             hstate <= ST_DONE_ERR;
+@@ -524,6 +579,25 @@ always @(posedge clk) begin
+     ST_WORK: begin
+         hstate <= ST_IDLE;
+     end
++    ST_DISPLAY_WAIT: begin
++        if (display_request_applied) begin
++            osnotify_display_mode <= display_mode_requested;
++            display_grayscale_committed <= osnotify_grayscale;
++            // Response data at host_8 (0x40), NOT the result/status word.
++            host_40 <= osnotify_grayscale ? 32'h0000444D : 32'h00000000;
++            hstate <= ST_DONE_OK;
++        end else if (display_mode_wait_cycles == DISPLAY_MODE_TIMEOUT_CYCLES - 1'b1) begin
++            // Bound the host wait, but do NOT mutate an in-flight mailbox.
++            // Drain its late ACK and explicitly undo it before any new
++            // display command can succeed. Otherwise stale CDC state could
++            // produce an apparent color ACK followed by grayscale pixels.
++            display_recovery <= 2'd1;
++            host_40 <= 32'h00000000;
++            hstate <= ST_DONE_ERR;
++        end else begin
++            display_mode_wait_cycles <= display_mode_wait_cycles + 1'b1;
++        end
++    end
+     ST_CLEAR_DATATABLE: begin
+         if(!b_datatable_clear_active) begin
+             status_setup_done_queue <= warm_reset_ready_pending;
+@@ -540,7 +614,7 @@ always @(posedge clk) begin
+         hstate <= ST_IDLE;
+     end
+     ST_DONE_ERR: begin
+-        host_0 <= 32'h4F4BFFFF; // result code FFFF = unknown command
++        host_0 <= 32'h4F4BFFFF; // result code FFFF = unsupported/failed command
+         hstate <= ST_IDLE;
+     end
+     endcase
+diff --git a/src/fpga/targets/pocket/core_top.v b/src/fpga/targets/pocket/core_top.v
+index 1010782..95eeee3 100644
+--- a/src/fpga/targets/pocket/core_top.v
++++ b/src/fpga/targets/pocket/core_top.v
+@@ -1925,6 +1925,22 @@ end
+     wire            savestate_load_err;
+ 
+     wire            osnotify_inmenu;
++    wire [7:0]      osnotify_display_mode;
++    wire            osnotify_grayscale;
++    wire            osnotify_display_request;
++    wire            display_request_ack_vid;
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg [2:0]       display_request_ack_sync = 3'b000;
++    wire            display_grayscale_applied_vid;
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg             display_grayscale_applied_meta = 1'b0;
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg             display_grayscale_applied_74a = 1'b0;
++    always @(posedge clk_74a) begin
++        display_request_ack_sync <= {display_request_ack_sync[1:0], display_request_ack_vid};
++        display_grayscale_applied_meta <= display_grayscale_applied_vid;
++        display_grayscale_applied_74a <= display_grayscale_applied_meta;
++    end
+ 
+     // CPU-side signals (in clk_ram_controller domain)
+     wire            cpu_target_dataslot_read;
+@@ -2293,6 +2309,11 @@ core_bridge_cmd icb (
+     .savestate_load_err     ( savestate_load_err ),
+ 
+     .osnotify_inmenu        ( osnotify_inmenu ),
++    .osnotify_display_mode  ( osnotify_display_mode ),
++    .osnotify_grayscale     ( osnotify_grayscale ),
++    .osnotify_display_request ( osnotify_display_request ),
++    .osnotify_display_ack   ( display_request_ack_sync[2] ),
++    .osnotify_grayscale_applied ( display_grayscale_applied_74a ),
+ 
+     .target_dataslot_read       ( target_dataslot_read ),
+     .target_dataslot_write      ( target_dataslot_write ),
+@@ -2327,11 +2348,27 @@ core_bridge_cmd icb (
+ // video generation
+ assign video_rgb_clock = clk_vid;
+ assign video_rgb_clock_90 = clk_vid_90deg;
+-assign video_rgb = video_rgb_core;
+-assign video_de = vidout_de;
+-assign video_skip = vidout_skip;
+-assign video_vs = vidout_vs;
+-assign video_hs = vidout_hs;
++// APF Display Modes: color/CRT are pixel-exact; monochrome LCD receives
++// full-range grayscale. Metadata and sidebands traverse the same stage.
++// Keep Analogizer's existing vidout_rgb path independent and in color.
++pal_display_mode_video display_mode_video (
++    .clk_vid(clk_vid),
++    .grayscale_request_async(osnotify_grayscale),
++    .request_toggle_async(osnotify_display_request),
++    .scanout_reset_n(reset_n_vid),
++    .rgb_in(video_rgb_core),
++    .de_in(vidout_de),
++    .skip_in(vidout_skip),
++    .vs_in(vidout_vs),
++    .hs_in(vidout_hs),
++    .rgb_out(video_rgb),
++    .de_out(video_de),
++    .skip_out(video_skip),
++    .vs_out(video_vs),
++    .hs_out(video_hs),
++    .grayscale_applied(display_grayscale_applied_vid),
++    .request_ack_toggle(display_request_ack_vid)
++);
+ 
+     reg [9:0]   x_count;
+     reg [9:0]   y_count;
+diff --git a/src/fpga/targets/pocket/pal_display_mode_video.v b/src/fpga/targets/pocket/pal_display_mode_video.v
+new file mode 100644
+index 0000000..09f3a7b
+--- /dev/null
++++ b/src/fpga/targets/pocket/pal_display_mode_video.v
+@@ -0,0 +1,88 @@
++// SPDX-License-Identifier: Apache-2.0
++// Pocket APF Display Mode grayscale adapter, game-local SDLPAL overlay.
++// This is source only until a new runtime bitstream is compiled and verified.
++`default_nettype none
++
++module pal_display_mode_video (
++    input  wire        clk_vid,
++    input  wire        grayscale_request_async,
++    input  wire        request_toggle_async,
++    input  wire        scanout_reset_n,
++    input  wire [23:0] rgb_in,
++    input  wire        de_in,
++    input  wire        skip_in,
++    input  wire        vs_in,
++    input  wire        hs_in,
++    output reg  [23:0] rgb_out = 24'h0,
++    output reg         de_out = 1'b0,
++    output reg         skip_out = 1'b0,
++    output reg         vs_out = 1'b0,
++    output reg         hs_out = 1'b0,
++    output reg         grayscale_applied = 1'b0,
++    output reg         request_ack_toggle = 1'b0
++);
++    // APF notifies are independent of the game's warm reset. Keep this
++    // synchronizer/output stage running while the CPU and scanout reset;
++    // otherwise an early 00B8 could deadlock waiting for Reset Exit.
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg grayscale_meta = 1'b0;
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg grayscale_sync = 1'b0;
++    (* async_reg = "true", altera_attribute = "-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS" *)
++    reg [2:0] request_sync = 3'b000;
++    reg request_seen = 1'b0;
++    reg pending_valid = 1'b0;
++    reg pending_grayscale = 1'b0;
++    reg pending_toggle = 1'b0;
++    reg grayscale_active = 1'b0;
++    // The bridge holds the bundled payload until this transaction is ACKed.
++    // Three toggle stages vs two payload stages provide settling margin;
++    // capture the stable payload, then apply it on a later frame boundary.
++    wire apply_pending = pending_valid && (!scanout_reset_n || (vs_in && !de_in));
++    wire grayscale_next = apply_pending ? pending_grayscale : grayscale_active;
++
++    // Full-range integer luma approximation, round to nearest:
++    // Y = (77*R + 150*G + 29*B + 128) >> 8.
++    // Explicit 16-bit operands prevent Verilog shift-width truncation.
++    // Coefficients sum to 256: every neutral 0..255 remains exact,
++    // including black=0 and white=255. No RAM or general multiplier.
++    wire [15:0] red   = {8'h00, rgb_in[23:16]};
++    wire [15:0] green = {8'h00, rgb_in[15:8]};
++    wire [15:0] blue  = {8'h00, rgb_in[7:0]};
++    wire [15:0] luma_sum =
++          (red << 6) + (red << 3) + (red << 2) + red
++        + (green << 7) + (green << 4) + (green << 2) + (green << 1)
++        + (blue << 4) + (blue << 3) + (blue << 2) + blue
++        + 16'd128;
++    wire [7:0] luma = luma_sum[15:8];
++
++    always @(posedge clk_vid) begin
++        grayscale_meta <= grayscale_request_async;
++        grayscale_sync <= grayscale_meta;
++        request_sync <= {request_sync[1:0], request_toggle_async};
++        if (request_sync[2] != request_seen) begin
++            request_seen <= request_sync[2];
++            pending_toggle <= request_sync[2];
++            pending_grayscale <= grayscale_sync;
++            pending_valid <= 1'b1;
++        end
++        if (apply_pending) begin
++            pending_valid <= 1'b0;
++            request_ack_toggle <= pending_toggle;
++        end
++
++        // One identical pipeline cycle for pixels and all APF sidebands.
++        // Blanking RGB carries frame/slot commands; NEVER grayscale it.
++        grayscale_active <= grayscale_next;
++        rgb_out <= (grayscale_next && de_in) ? {luma, luma, luma} : rgb_in;
++        de_out <= de_in;
++        skip_out <= skip_in;
++        vs_out <= vs_in;
++        hs_out <= hs_in;
++        // This flag changes on the edge that really changes output pixels.
++        // The bridge synchronizes it back before acknowledging 00B8.
++        grayscale_applied <= grayscale_next;
++    end
++endmodule
++
++`default_nettype wire
+diff --git a/src/fpga/test/tb_core_bridge_cmd.v b/src/fpga/test/tb_core_bridge_cmd.v
+index a6172a2..f37da65 100644
+--- a/src/fpga/test/tb_core_bridge_cmd.v
++++ b/src/fpga/test/tb_core_bridge_cmd.v
+@@ -39,6 +39,8 @@ wire [31:0] rtc_date_bcd;
+ wire [31:0] rtc_time_bcd;
+ wire        rtc_valid;
+ wire        osnotify_inmenu;
++wire        osnotify_grayscale;
++wire        osnotify_display_request;
+ wire        savestate_start;
+ wire        savestate_load;
+ wire        target_dataslot_ack;
+@@ -91,6 +93,13 @@ core_bridge_cmd dut (
+     .savestate_maxloadsize (32'b0),
+ 
+     .osnotify_inmenu (osnotify_inmenu),
++    .osnotify_display_mode (),
++    .osnotify_grayscale (osnotify_grayscale),
++    .osnotify_display_request (osnotify_display_request),
++    .osnotify_display_ack (osnotify_display_request),
++    // This bridge-only fixture models immediate application. The PAL
++    // display-mode integration test uses the real asynchronous video stage.
++    .osnotify_grayscale_applied (osnotify_grayscale),
+ 
+     .savestate_start     (savestate_start),
+     .savestate_start_ack (1'b0),

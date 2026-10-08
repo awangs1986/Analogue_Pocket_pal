@@ -1,0 +1,92 @@
+{
+  "status": "OPTIONAL_CONFIGURATIONS_NOT_INSTALLED",
+  "strict_default": "pocket/config/video.json remains CRT-only",
+  "source": "https://www.analogue.co/developer/docs/openfpga/core-definition-files/video-json",
+  "policy": "No profile is copied by the existing packager. color-v1.video.json is configuration-ready with the existing pinned v1 runtime; its appearance and aspect still need hardware checks. Profiles containing 0x20-0x23 require the new verified grayscale runtime. All LCD profiles require explicit opt-in to possible aspect differences.",
+  "profiles": [
+    {
+      "file": "color-v1.video.json",
+      "title": "RGB-input LCD modes for the existing v1 runtime",
+      "expected_mode_ids": [
+        "0x10",
+        "0x30",
+        "0x31",
+        "0x32",
+        "0x40",
+        "0x41",
+        "0x42",
+        "0x51",
+        "0x52",
+        "0x61",
+        "0x62",
+        "0x63",
+        "0x71",
+        "0x72",
+        "0x81",
+        "0x82"
+      ],
+      "requires_new_verified_runtime": false,
+      "compatible_runtime": "existing-pinned-v1-os25",
+      "readiness": "CONFIG_READY_HARDWARE_UNVERIFIED",
+      "lcd_aspect_not_guaranteed": true
+    },
+    {
+      "file": "generic.video.json",
+      "title": "Generic built-in families",
+      "expected_mode_ids": [
+        "0x10",
+        "0x20",
+        "0x30",
+        "0x40",
+        "0xE0",
+        "0xE1"
+      ],
+      "requires_new_verified_runtime": true,
+      "lcd_aspect_not_guaranteed": true
+    },
+    {
+      "file": "nintendo-sega.video.json",
+      "title": "Nintendo and Sega originals",
+      "expected_mode_ids": [
+        "0x10",
+        "0x20",
+        "0x21",
+        "0x22",
+        "0x23",
+        "0x30",
+        "0x31",
+        "0x32",
+        "0x40",
+        "0x41",
+        "0x42",
+        "0x51",
+        "0x52",
+        "0xE0",
+        "0xE1"
+      ],
+      "requires_new_verified_runtime": true,
+      "lcd_aspect_not_guaranteed": true
+    },
+    {
+      "file": "snk-nec-atari.video.json",
+      "title": "SNK, NEC and Atari originals",
+      "expected_mode_ids": [
+        "0x10",
+        "0x20",
+        "0x30",
+        "0x40",
+        "0x61",
+        "0x62",
+        "0x63",
+        "0x71",
+        "0x72",
+        "0x81",
+        "0x82",
+        "0xE0",
+        "0xE1"
+      ],
+      "requires_new_verified_runtime": true,
+      "lcd_aspect_not_guaranteed": true
+    }
+  ]
+}

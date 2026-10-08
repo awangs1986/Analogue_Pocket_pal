@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "baseline_commit": "1d35d896b99722b9968685c1284cb5f1566cd662",
+  "sdk": {"commit": "a408ddc12aed0dfaa4aa22c06af82f829db77126", "runtime_source": "618a3eb", "runtime_variant": "os25", "status": "EXISTING_CANDIDATE_NOT_GRAYSCALE_RUNTIME"},
+  "core": {"commit": "618a3eb985759a4154115109c2c8036271252888", "variant": "os25", "device": "5CEBA4F23C8", "family": "Cyclone V", "quartus_version": "25.1", "container_os": "ubuntu", "container_os_version": "22.04", "container_arch": "amd64", "minimum_free_gib": 30, "qprocs": 4},
+  "submodules": [
+    {"name": "vexii", "path": "src/fpga/vendor/vexriscv/VexiiRiscv", "commit": "580b76c3868512c8316bb7a3d3add81cad49a0dc", "parent": "core", "gitlink": "src/fpga/vendor/vexriscv/VexiiRiscv"},
+    {"name": "spinal", "path": "src/fpga/vendor/vexriscv/VexiiRiscv/ext/SpinalHDL", "commit": "6f8510cdbb8ad7b8bcc0f6d58395669c4c4d7e2d", "parent": "vexii", "gitlink": "ext/SpinalHDL"},
+    {"name": "rvls", "path": "src/fpga/vendor/vexriscv/VexiiRiscv/ext/rvls", "commit": "94f850e5f7c9a36e5aceb3810d658fffae55b497", "parent": "vexii", "gitlink": "ext/rvls"}
+  ],
+  "display_patch": {"path": "pocket/fpga/display-modes.patch", "sha256": "62c99cdf1575f61e7a6abf54b671d05104b421ee9d808ba9e136b8682d0809a8", "status": "SOURCE_ONLY_NOT_A_RUNTIME"},
+  "musl": {"filename": "musl-1.2.5.tar.gz", "version": "1.2.5", "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"},
+  "images": {"firmware": "openfpgaos-firmware", "vexii": "openfpgaos-vexii", "quartus": "openfpgaos-quartus-full"},
+  "policy": {"downloads": false, "image_builds": false, "image_pulls": false, "sd_writes": false, "runtime_publication": false, "network": "none", "hardware_verified": false}
+}

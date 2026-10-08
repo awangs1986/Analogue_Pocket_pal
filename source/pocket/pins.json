@@ -1,0 +1,16 @@
+{
+  "mister_pal_base": "1d35d896b99722b9968685c1284cb5f1566cd662",
+  "sdk_repository": "https://github.com/openfpgaOS/openfpgaSDK.git",
+  "sdk_commit": "a408ddc12aed0dfaa4aa22c06af82f829db77126",
+  "core_reference_commit": "8318f25066b0b75d2e34081919dfc337ac6abf73",
+  "runtime_manifest_source": "618a3eb",
+  "runtime_variant": "os25",
+  "architecture": "rv32imafc",
+  "abi": "ilp32f",
+  "toolchain_tested": "Debian gcc-riscv64-unknown-elf 14.2.0+19",
+  "toolchain_packages": {
+    "binutils-riscv64-unknown-elf_2.44-3+7+b1_amd64.deb": "5e2d6b9fd803b475be267917ce543e79d3894026132aba91488736e6b17144a3",
+    "gcc-riscv64-unknown-elf_14.2.0+19_amd64.deb": "c5637d336d9bb18dcba60c6cdee40a61a55eb45f7a5637bce00ecdc47b8295dc"
+  },
+  "runtime_source_commit": "618a3eb985759a4154115109c2c8036271252888"
+}

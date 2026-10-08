@@ -1,0 +1,16 @@
+{
+  "status": "SOURCE_ONLY_NOT_A_RUNTIME",
+  "sdk_commit": "a408ddc12aed0dfaa4aa22c06af82f829db77126",
+  "runtime_source_commit": "618a3eb985759a4154115109c2c8036271252888",
+  "runtime_variant": "os25",
+  "patch": "display-modes.patch",
+  "patch_sha256": "62c99cdf1575f61e7a6abf54b671d05104b421ee9d808ba9e136b8682d0809a8",
+  "simulation_tool": "Icarus Verilog 12.0 (Debian official package)",
+  "simulation_package_sha256": "febe027d2d3f5a7e570844d55758339ab5490acc09f404f214a8719d89d07056",
+  "not_verified": [
+    "Quartus elaboration/synthesis/fit",
+    "timing closure",
+    "Pocket host acceptance and physical output",
+    "Dock HDMI display-mode behavior"
+  ]
+}
