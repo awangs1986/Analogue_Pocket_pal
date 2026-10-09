@@ -19,6 +19,10 @@ See [implementation, test results and release gates](../docs/display-modes-follo
 - `source.json`: exact base and patch hash, explicitly source-only.
 - `profiles/color-v1.video.json`: an optional 16-entry color-input profile that
   needs no rebuilt FPGA runtime; default configuration is not changed.
+- `timing-closure-tc6/`: separate, opt-in `git format-patch` series (4 patches, seed 16)
+  applied after `display-modes.patch` for the 100 MHz timing-closed tc6-s16 test build.
+  Not wired into `build_handoff.py`; not hardware-verified. See its README and
+  [the timing report](../docs/timing-closure-tc6.md).
 - `profiles/`: three additional full `video.json` variants include monochrome
   modes and together cover all 22 documented IDs, at most 16 per file. Existing
   scaler-slot ABI is unchanged. `catalog.json` records each runtime requirement.

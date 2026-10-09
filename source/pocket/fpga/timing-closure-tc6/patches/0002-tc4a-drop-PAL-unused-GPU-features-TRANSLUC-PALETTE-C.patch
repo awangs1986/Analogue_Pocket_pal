@@ -1,0 +1,28 @@
+From 2cfb9383764bb6c50decb9d7014dcbc8e497af78 Mon Sep 17 00:00:00 2001
+From: tc-local <tc@localhost>
+Date: Fri, 9 Oct 2026 13:20:40 +0800
+Subject: [PATCH 2/4] tc4a: drop PAL-unused GPU features (TRANSLUC, PALETTE,
+ COLUMN_LIST, COMPACT_SPAN, PARAM_SPAN_Q29)
+
+---
+ src/fpga/targets/pocket/variants/os25.mk | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/fpga/targets/pocket/variants/os25.mk b/src/fpga/targets/pocket/variants/os25.mk
+index 6546046..3aa976f 100644
+--- a/src/fpga/targets/pocket/variants/os25.mk
++++ b/src/fpga/targets/pocket/variants/os25.mk
+@@ -28,6 +28,10 @@
+ # decode (poll_hid_slots) sees real data instead of the tied-0 default;
+ # without it those slots are hardcoded 0 (core_top.v).
+ 
+-DEFS := INCLUDE_ANALOGIZER INCLUDE_HW_MIXER INCLUDE_TRANSLUC \
+-        INCLUDE_PALETTE INCLUDE_COLUMN_LIST INCLUDE_COMPACT_SPAN \
+-        INCLUDE_PARAM_SPAN_Q29 INCLUDE_4PLAYER
++# tc/round4 (SDLPAL-only): PAL draws via the CPU surface path (of_sdl2 shim,
++# of_video_flip = FB_SWAP_CTRL) and never issues GPU ring commands, so the
++# GPU-only fast paths are dropped: TRANSLUC (+SRAM ctrl), PALETTE (GPU
++# colormap lane; scanout palette unaffected), COLUMN_LIST, COMPACT_SPAN,
++# PARAM_SPAN_Q29.  Kept: ANALOGIZER, HW_MIXER (PAL checks OF_HW_MIXER),
++# 4PLAYER (PAL reads dock keyboard).
++DEFS := INCLUDE_ANALOGIZER INCLUDE_HW_MIXER INCLUDE_4PLAYER

@@ -8,6 +8,7 @@ Development source and reproducible build handoff. **Not a hardware-validated re
 - Ogg/Vorbis decoding runs on the RISC-V CPU; the FPGA outputs PCM.
 - New display-mode bitstream has not completed Quartus synthesis/fit/assembly/timing or physical Pocket/Dock acceptance. Historical host/ELF tests do not establish those results.
 - No proprietary game assets, credentials or ready-to-flash release are included.
+- Test branch work: an opt-in 100 MHz timing-closure patch series for the openfpgaCore runtime ([source/pocket/fpga/timing-closure-tc6](source/pocket/fpga/timing-closure-tc6), [Chinese report](source/pocket/docs/timing-closure-tc6.md), [device test checklist](source/pocket/docs/tc6-s16-test-checklist.md)). Timing-only result; **not hardware-verified**; no bitstream is committed.
 
 ## Restore and build
 
