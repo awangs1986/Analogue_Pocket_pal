@@ -1,0 +1,129 @@
+From 0b10bddfef9b8dd33e99a9a866c478a2d6a93bea Mon Sep 17 00:00:00 2001
+From: tc-local <tc@localhost>
+Date: Fri, 9 Oct 2026 13:40:54 +0800
+Subject: [PATCH 3/4] tc5: EXCLUDE_GPU + gpu_min register-compatible stub
+ (immediate completion, fence always retired); GPU SDRAM masters idle
+
+---
+ src/fpga/common/gpu_min.v                | 58 ++++++++++++++++++++++++
+ src/fpga/targets/pocket/ap_core.qsf      |  2 +-
+ src/fpga/targets/pocket/core_top.v       | 15 ++++--
+ src/fpga/targets/pocket/variants/os25.mk |  4 +-
+ 4 files changed, 74 insertions(+), 5 deletions(-)
+ create mode 100644 src/fpga/common/gpu_min.v
+
+diff --git a/src/fpga/common/gpu_min.v b/src/fpga/common/gpu_min.v
+new file mode 100644
+index 0000000..92a9875
+--- /dev/null
++++ b/src/fpga/common/gpu_min.v
+@@ -0,0 +1,58 @@
++// gpu_min.v -- register-compatible GPU stub for CPU-only apps (tc/round5).
++//
++// Replaces gpu_core when EXCLUDE_GPU is defined.  No rasteriser, no ring,
++// no DMA engine, no SDRAM/SRAM/fast-tex masters (core_top ties those idle).
++// Keeps the MMIO map of gpu_core.v so the OS boot path and the SDK
++// polling loops never stall:
++//   0x00 GPU_CTRL          W  accepted (soft/ring reset are no-ops)
++//   0x04 GPU_RING_WRPTR    R  0
++//   0x08 GPU_TEX_MEM_UP_ADDR W ignored
++//   0x0C GPU_DMA_SRC       W  ignored
++//   0x10 GPU_RING_RDPTR    R  0           (== WRPTR -> ring always empty)
++//   0x14 GPU_STATUS        R  0x00000002  (busy=0, ring_empty=1, dma_busy=0,
++//                                          transluc_busy=0, dma_state=IDLE,
++//                                          dma_desc_full=0)
++//   0x18 GPU_FENCE         R  FENCE_DONE  (every issued token reads as
++//                                          retired: (int32)(FENCE-token)>=0
++//                                          for any token in 0..0x7FFFFFFF)
++//   0x1C GPU_DMA_LEN       W  ignored
++//   0x20/0x24 TRANSLUC     W  ignored
++//   0x28 GPU_TEX_FLUSH     W  ignored (completes immediately)
++//   0x2C GPU_DMA_KICK      W  ignored (completes immediately)
++//   0x30 GPU_PALOOKUP_BASE RW kept (26-bit, same reset default)
++//   0x34 GPU_DBG_WR_INFLIGHT R 0
++//   0x38/0x3C TEX_MEM      R  0
++module gpu_min #(
++    parameter [31:0] FENCE_DONE = 32'h7FFF_FFFF
++) (
++    input  wire        clk,
++    input  wire        reset_n,
++    input  wire        reg_wr,
++    input  wire [3:0]  reg_addr,
++    input  wire [31:0] reg_wdata,
++    output reg  [31:0] reg_rdata,
++    output wire        busy,
++    output wire [31:0] fence_reached
++);
++    localparam [25:0] PALOOKUP_BASE_DEFAULT = 26'h3fc0000;
++    reg [25:0] palookup_base;
++
++    always @(posedge clk) begin
++        if (!reset_n)
++            palookup_base <= PALOOKUP_BASE_DEFAULT;
++        else if (reg_wr && reg_addr == 4'd12)
++            palookup_base <= reg_wdata[25:0];
++    end
++
++    always @(*) begin
++        case (reg_addr)
++            4'd5:    reg_rdata = 32'h0000_0002;     // STATUS: ring_empty only
++            4'd6:    reg_rdata = FENCE_DONE;        // FENCE
++            4'd12:   reg_rdata = {6'b0, palookup_base};
++            default: reg_rdata = 32'b0;             // WRPTR/RDPTR/inflight/route/upload
++        endcase
++    end
++
++    assign busy          = 1'b0;
++    assign fence_reached = FENCE_DONE;
++endmodule
+diff --git a/src/fpga/targets/pocket/ap_core.qsf b/src/fpga/targets/pocket/ap_core.qsf
+index 71e1673..be76e54 100644
+--- a/src/fpga/targets/pocket/ap_core.qsf
++++ b/src/fpga/targets/pocket/ap_core.qsf
+@@ -888,7 +888,7 @@ set_global_assignment -name VERILOG_FILE ../../common/audio_mixer.v
+ # cram1_controller.v / cram1_phy.sv / axi_cram1_slave.v / bridge_to_cram1.v /
+ # cram1_burst_mmio.v retired in memory-arch v2.
+ set_global_assignment -name VERILOG_FILE audio_output.v
+-set_global_assignment -name VERILOG_FILE ../../common/gpu_core.v
++set_global_assignment -name VERILOG_FILE ../../common/gpu_min.v
+ set_global_assignment -name VERILOG_FILE ../../common/gpu_edge_walker.v
+ set_global_assignment -name VERILOG_FILE ../../common/gpu_tex_cache.v
+ set_global_assignment -name VERILOG_FILE ../../common/axi_periph_slave.v
+diff --git a/src/fpga/targets/pocket/core_top.v b/src/fpga/targets/pocket/core_top.v
+index 95eeee3..16eebc2 100644
+--- a/src/fpga/targets/pocket/core_top.v
++++ b/src/fpga/targets/pocket/core_top.v
+@@ -3685,9 +3685,18 @@ assign gpu_wr_wvalid  = 1'b0;
+ assign gpu_wr_wdata   = 32'b0;
+ assign gpu_wr_wstrb   = 4'b0;
+ assign gpu_wr_wlast   = 1'b0;
+-assign gpu_busy       = 1'b0;
+-assign gpu_fence_reached = 32'b0;
+-assign gpu_reg_rdata   = 32'b0;
++// tc/round5: register-compatible stub (immediate completion, fence always
++// retired, STATUS idle) so the OS boot / SDK polls never wait on a GPU.
++gpu_min gpu_stub (
++    .clk(clk_cpu),
++    .reset_n(reset_n_cpu_media),
++    .reg_wr(gpu_reg_wr),
++    .reg_addr(gpu_reg_addr),
++    .reg_wdata(gpu_reg_wdata),
++    .reg_rdata(gpu_reg_rdata),
++    .busy(gpu_busy),
++    .fence_reached(gpu_fence_reached)
++);
+ assign gpu_swap_req   = 1'b0;
+ assign gpu_swap_idx   = 2'b0;
+ assign sram_word_rd    = 1'b0;
+diff --git a/src/fpga/targets/pocket/variants/os25.mk b/src/fpga/targets/pocket/variants/os25.mk
+index 3aa976f..9d32540 100644
+--- a/src/fpga/targets/pocket/variants/os25.mk
++++ b/src/fpga/targets/pocket/variants/os25.mk
+@@ -34,4 +34,6 @@
+ # colormap lane; scanout palette unaffected), COLUMN_LIST, COMPACT_SPAN,
+ # PARAM_SPAN_Q29.  Kept: ANALOGIZER, HW_MIXER (PAL checks OF_HW_MIXER),
+ # 4PLAYER (PAL reads dock keyboard).
+-DEFS := INCLUDE_ANALOGIZER INCLUDE_HW_MIXER INCLUDE_4PLAYER
++# tc/round5: EXCLUDE_GPU -> gpu_core replaced by gpu_min (register-compatible
++# stub, immediate completion); GPU SDRAM read/write masters tied idle.
++DEFS := INCLUDE_ANALOGIZER INCLUDE_HW_MIXER INCLUDE_4PLAYER EXCLUDE_GPU

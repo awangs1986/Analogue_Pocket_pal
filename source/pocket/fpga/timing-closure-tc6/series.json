@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "status": "TEST_SERIES_NOT_HARDWARE_VERIFIED",
+  "applies_to": {
+    "core_commit": "618a3eb985759a4154115109c2c8036271252888",
+    "after": "pocket/fpga/display-modes.patch (as applied by pocket/fpga/prepare_runtime.py)",
+    "display_patch_sha256": "62c99cdf1575f61e7a6abf54b671d05104b421ee9d808ba9e136b8682d0809a8"
+  },
+  "origin_commits": {
+    "base": "3187d74 (618a3eb + display-modes.patch)",
+    "head": "7c29497"
+  },
+  "patches": [
+    {
+      "file": "patches/0001-TC-1a-io_sdram-registered-one-hot-dq-selects-for-phy.patch",
+      "sha256": "e6549e299fbd9e5cf72956db0a26f9765b8f9717674fceebcc475f809af9a2aa"
+    },
+    {
+      "file": "patches/0002-tc4a-drop-PAL-unused-GPU-features-TRANSLUC-PALETTE-C.patch",
+      "sha256": "0a613b86248889bf054db00a77ff31be76c285cd8255888196be537d719b388f"
+    },
+    {
+      "file": "patches/0003-tc5-EXCLUDE_GPU-gpu_min-register-compatible-stub-imm.patch",
+      "sha256": "edb157b06fd54a2564104f4caabfedb3d6b50c4a1158455b433b7fe68e8100eb"
+    },
+    {
+      "file": "patches/0004-tc6-false-path-to-the-unused-DDIO-rising-edge-captur.patch",
+      "sha256": "e3b4e89015a004089d2bebbeda6a7b8f25d7a36cda6a2f113a643a152a5366f0"
+    }
+  ],
+  "seed": {
+    "variant": "os25",
+    "file": "src/fpga/targets/pocket/seeds/os25.seed",
+    "value": 16,
+    "note": "tc6-s16 was fitted with SEED 16 in the generated QSF (upstream default seeds/os25.seed = 40). apply_series.py writes 16 unless --keep-seed."
+  },
+  "build": {
+    "quartus": "25.1std.0 Build 1129 Lite (container openfpgaos-quartus-full)",
+    "device": "5CEBA4F23C8",
+    "variant": "os25",
+    "qprocs": 4,
+    "fmax_target_mhz": 100,
+    "macros": [
+      "INCLUDE_ANALOGIZER",
+      "INCLUDE_HW_MIXER",
+      "INCLUDE_4PLAYER",
+      "EXCLUDE_GPU"
+    ]
+  },
+  "reference_result_tc6_s16": {
+    "os25.rbf_r_sha256": "4c334a81dd6e6b8de9cec8c491699be34b71c44689ef73339e1e44a1becb7c06",
+    "ap_core.rbf_bytes_reversed": true,
+    "embedded_firmware_mif_sha256": "0b33fc685721744f03d886986bfeec875392fa534ef5a8ef62739cde1bd46b37",
+    "os.bin_sha256_same_firmware_build": "bfd5e0043e2bfe77a46fa204260842e6980b58393a7f115b2bb792bb344c1b84",
+    "worst_slack_ns": {
+      "slow_85c": {
+        "setup": 0.097,
+        "hold": 0.288,
+        "recovery": 2.302,
+        "removal": 0.996,
+        "mpw": 0.5
+      },
+      "slow_0c": {
+        "setup": 0.272,
+        "hold": 0.281,
+        "recovery": 2.306,
+        "removal": 0.93,
+        "mpw": 0.5
+      },
+      "fast_85c": {
+        "setup": 1.998,
+        "hold": 0.009,
+        "recovery": 6.453,
+        "removal": 0.377,
+        "mpw": 0.5
+      },
+      "fast_0c": {
+        "setup": 2.052,
+        "hold": 0.018,
+        "recovery": 6.646,
+        "removal": 0.344,
+        "mpw": 0.5
+      }
+    },
+    "resources": {
+      "ALM": "10838/18480",
+      "registers": 17370,
+      "M10K": "243/308",
+      "DSP": "17/66",
+      "pins": "224/224"
+    },
+    "note": "Seed-sensitive: 1 of 11 seeds was all-positive on this series; rebuilding may not reproduce it bit-exactly."
+  },
+  "not_verified": [
+    "Pocket/Dock operation",
+    "x_count clk_vid->clk_core_49152 hold robustness across seeds (RTL fix pending)"
+  ]
+}

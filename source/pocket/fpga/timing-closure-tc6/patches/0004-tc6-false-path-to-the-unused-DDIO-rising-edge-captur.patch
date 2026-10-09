@@ -1,0 +1,37 @@
+From 7c294975e66b0be98f746326a63d0bfdd3501ef1 Mon Sep 17 00:00:00 2001
+From: tc-local <tc@localhost>
+Date: Fri, 9 Oct 2026 14:48:19 +0800
+Subject: [PATCH 4/4] tc6: false path to the unused DDIO rising-edge capture
+ regs (dataout_h, 16 nodes verified); real DFFLO capture stays constrained
+
+---
+ src/fpga/targets/pocket/core_constraints.sdc | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/src/fpga/targets/pocket/core_constraints.sdc b/src/fpga/targets/pocket/core_constraints.sdc
+index c127f84..3bb864a 100644
+--- a/src/fpga/targets/pocket/core_constraints.sdc
++++ b/src/fpga/targets/pocket/core_constraints.sdc
+@@ -114,6 +114,22 @@ set_multicycle_path -hold  -end -from [get_ports {dram_dq[*]}] 1
+ # slip / I$-delivered wrong immediates, 2026-07-28); a set_max_delay 4.0
+ # proved physically unreachable (IO->LAB route + 0.9 ns clock skew).
+ 
++# tc/round6: the DDIO RISING-edge capture register (altddio_in dataout_h, wired
++# to phy_dq_ddio_h_unused in io_sdram.v and NEVER read) is a dangling register
++# with no functional fanout.  STA still times dram_dq -> dataout_h against the
++# rising edge and reports it as the design's worst path (-0.15 .. -0.84 ns,
++# swinging per seed with the dram_clk PLL-counter/CLKCTRL pick), while the
++# register the controller actually reads (ddio_ina[*]~DFFLO -> dataout_l ->
++# phy_dq_latched) keeps +4.0 .. +4.7 ns setup / +7.8 ns hold (slow 85C) and
++# stays FULLY constrained by the input delays + multicycles above.  Upstream
++# already treats this as a phantom: tools/sta_dq.tcl / tools/sta_dq_both.tcl
++# ("THE -to FILTER IS LOAD-BEARING ... dataout_h ... NEVER READS").
++# The pattern matches exactly the 16 dataout_h registers (verified with
++# get_registers on the tc5-s8 netlist: 16 hits, no DFFLO, no dataout_l).
++# !!! If the RTL ever starts using dataout_h (phy_dq_ddio_h_unused), this
++# !!! false path MUST be deleted -- it would then hide a real capture path.
++set_false_path -to [get_registers {*|io_sdram:isr0|altddio_in:u_dq_ddio_in|ddio_in_gbf:auto_generated|dataout_h[*]}]
++
+ # CRAM0 async-mode pin timing (F5, bridge-corruption mitigation 2026-06).
+ # cram0_clk is now tied LOW in core_top.v: the chip runs exclusively in
+ # async page mode (BCR 0x9D1F, burst_rd tied off) and the CellularRAM spec

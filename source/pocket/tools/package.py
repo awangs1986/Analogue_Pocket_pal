@@ -11,6 +11,12 @@ from check_sdk import check_sdk, HERE, PINS
 
 CORE_ID = "awangs1986.PAL"
 
+# Every APF core-folder JSON the Pocket firmware opens. variants.json is required even
+# with an empty list: without it the device reports "load error in variants".
+CORE_JSON_FILES = ("core.json", "audio.json", "data.json", "input.json", "video.json",
+                   "interact.json", "variants.json")
+
+
 def verify_elf(path):
     head = Path(path).read_bytes()[:52]
     if len(head) < 52 or head[:7] != b"\x7fELF\x01\x01\x01":
@@ -36,7 +42,7 @@ def package(sdk, elf, out, probe_assets=None):
     licenses = out / "licenses"
     for directory in (core, common, instances, platforms, licenses):
         directory.mkdir(parents=True)
-    for name in ("core.json", "audio.json", "data.json", "input.json", "video.json", "interact.json"):
+    for name in CORE_JSON_FILES:
         value = json.loads((HERE / "config" / name).read_text())
         if probe_assets and name == "core.json":
             value["core"]["metadata"]["platform_ids"] = [platform_id]

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from package import verify_elf
+from package import CORE_JSON_FILES, verify_elf
 
 class PackageTests(unittest.TestCase):
     def test_elf_gate(self):
@@ -44,5 +44,14 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(core["cores"][0]["filename"], "os25.rbf_r")
         self.assertFalse(core["framework"]["sleep_supported"])
         self.assertEqual(core["metadata"]["platform_ids"], ["sdlpal"])
+
+    def test_core_json_set_includes_variants(self):
+        # The Pocket rejects a core folder without variants.json ("load error in variants").
+        self.assertIn("variants.json", CORE_JSON_FILES)
+        for name in CORE_JSON_FILES:
+            json.loads((ROOT / "config" / name).read_text())
+        variants = json.loads((ROOT / "config/variants.json").read_text())["variants"]
+        self.assertEqual(variants["magic"], "APF_VER_1")
+        self.assertEqual(variants["variant_list"], [])
 
 if __name__ == "__main__": unittest.main()
