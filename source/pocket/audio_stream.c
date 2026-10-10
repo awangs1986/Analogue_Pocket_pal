@@ -2,6 +2,11 @@
  * Cooperative Ogg/Vorbis music decoder. The FPGA receives PCM, not Ogg.
  * Built against SDLPAL's existing BSD-licensed libogg/libvorbis sources.
  */
+#ifdef __POCKET__
+#include <stdint.h>
+#include "pocket_log.h"
+uint32_t PAL_PocketTimeUs(void);
+#endif
 #include "audio_stream.h"
 #include <ogg/ogg.h>
 #include <vorbis/codec.h>
@@ -161,8 +166,15 @@ static int source_frame(ppa_stream *s, float stereo[2], unsigned *budget)
                     s->header_bytes += (unsigned)packet.bytes;
                     if (s->header_bytes > PPA_PACKET_LIMIT)
                         return fail(s, "Vorbis headers exceed 256 KiB limit");
+#ifdef __POCKET__
+                    uint32_t hdr_t0 = PAL_PocketTimeUs();
+#endif
                     if (vorbis_synthesis_headerin(&s->info, &s->comment, &packet))
                         return fail(s, "Invalid Vorbis headers");
+#ifdef __POCKET__
+                    if (s->headers == 2)
+                        PAL_PocketLog("ogg setup header: %ld bytes, %u us", (long)packet.bytes, (unsigned)(PAL_PocketTimeUs() - hdr_t0));
+#endif
                     if (++s->headers == 1) {
                         if (s->info.channels < 1 || s->info.channels > 2)
                             return fail(s, "Only mono or stereo Vorbis is supported");
@@ -172,8 +184,14 @@ static int source_frame(ppa_stream *s, float stereo[2], unsigned *budget)
                         s->stats.source_channels = (unsigned)s->info.channels;
                     }
                     if (s->headers == 3) {
+#ifdef __POCKET__
+                        uint32_t init_t0 = PAL_PocketTimeUs();
+#endif
                         if (vorbis_synthesis_init(&s->dsp, &s->info))
                             return fail(s, "Vorbis decoder initialization failed");
+#ifdef __POCKET__
+                        PAL_PocketLog("ogg synthesis_init: %u us", (unsigned)(PAL_PocketTimeUs() - init_t0));
+#endif
                         s->initialized |= INIT_DSP;
                         if (vorbis_block_init(&s->dsp, &s->block))
                             return fail(s, "Vorbis block initialization failed");
