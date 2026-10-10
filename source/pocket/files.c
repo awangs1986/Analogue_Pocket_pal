@@ -6,6 +6,12 @@
 #define _GNU_SOURCE
 #endif
 #include "files.h"
+#ifndef PAL_POCKET_FILES_HOST
+#include "pocket_log.h"
+#define FLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define FLOG(...) ((void)0)
+#endif
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -175,6 +181,7 @@ int PAL_PocketFilesInitPath(const char *path)
     }
     if (previous_end != total) goto malformed;
     entry_count = count;
+    FLOG("pak: %s %ld bytes, %lu entries, first=%s last=%s", path, length, (unsigned long)count, entries[0].name, entries[count - 1].name);
     return 0;
 malformed:
     errno = EINVAL;
@@ -412,7 +419,14 @@ static int valid_mode(const char *mode)
     }
     return 1;
 }
+static FILE *wrap_fopen_impl(const char *name, const char *mode);
 FILE *__wrap_fopen(const char *name, const char *mode)
+{
+    FILE *f = wrap_fopen_impl(name, mode);
+    FLOG("fopen %s %s -> %s", name ? name : "(null)", mode ? mode : "(null)", f ? "ok" : "FAIL");
+    return f;
+}
+static FILE *wrap_fopen_impl(const char *name, const char *mode)
 {
     char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
     int index, writing = mode && (mode[0] == 'w' || mode[0] == 'a' || strchr(mode, '+'));

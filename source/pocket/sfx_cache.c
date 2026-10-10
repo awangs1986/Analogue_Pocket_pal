@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "sfx_cache.h"
+#include "pocket_log.h"
 #include "pocket_resample.h"
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,7 @@ PAL_PocketSfx *PAL_PocketSfxAcquire(int key, const void *data, uint32_t bytes,
     if (!in_frames) return NULL;
     out_frames = (uint32_t)ppr_output_frames(in_frames, rate, out_rate);
     size = (uint32_t)sizeof(PAL_PocketSfx) + out_frames * (uint32_t)channels * 2u;
+    PAL_PocketLog("SFX cache: key=%d %u frames %dbit %dch %dHz -> %u bytes (used %u, entries %u)", key, (unsigned)in_frames, bits, channels, rate, (unsigned)size, (unsigned)used_bytes, (unsigned)n_entries);
     evict(size);
     src = (int16_t *)malloc((size_t)in_frames * channels * sizeof(int16_t));
     e = (PAL_PocketSfx *)malloc(size);

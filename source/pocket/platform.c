@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "main.h"
+#include "pocket_log.h"
+#include <unistd.h>
 #include "of.h"
 #include "files.h"
 #include <stdio.h>
@@ -23,27 +25,33 @@ BOOL UTIL_IsAbsolutePath(const char *path) { return path && path[0] == '/'; }
 int UTIL_Platform_Startup(int argc, char *argv[])
 {
     const struct of_capabilities *caps = of_get_caps();
+    int stack_probe;
     (void)argc; (void)argv;
+    PAL_PocketLog("=== Pocket PAL boot (diag log) build " __DATE__ " " __TIME__ " ===");
+    PAL_PocketLog("caps=%p cpu=%u Hz sdram=%u brk=%p sp~%p", (void *)caps, caps ? caps->cpu_freq_hz : 0, caps ? caps->sdram_size : 0, sbrk(0), (void *)&stack_probe);
     if (!caps || caps->magic != OF_CAPS_MAGIC || !of_has_feature(OF_HW_FPU)) {
         fprintf(stderr, "Pocket PAL requires an openfpgaOS rv32imafc runtime with FPU.\n");
         exit(EXIT_FAILURE);
     }
     printf("Pocket PAL: rv32imafc, CPU %u Hz, SDRAM %u bytes\n",
            caps->cpu_freq_hz, caps->sdram_size);
+    PAL_PocketLog("files: opening pal.pak");
     if (PAL_PocketFilesInit() != 0) {
+        PAL_PocketLog("files: pal.pak FAILED: %s", PAL_PocketFileError() ? PAL_PocketFileError() : "?");
         SDL_MessageBoxButtonData button = {0, 0, "OK"};
         SDL_MessageBoxData box = {SDL_MESSAGEBOX_ERROR, NULL, "PAL assets unavailable",
             PAL_PocketFileError(), 1, &button, NULL};
         SDL_ShowMessageBox(&box, NULL);
         exit(EXIT_FAILURE);
     }
+    PAL_PocketLog("files: pal.pak ok");
     of_file_set_idle_hook(PAL_PocketAudioDrain);
     return 0;
 }
 static void pocket_log(LOGLEVEL level, const char *message, const char *unused)
 {
     (void)level; (void)unused;
-    if (message) fputs(message, stderr);
+    if (message) { fputs(message, stderr); PAL_PocketLogRaw(message); }
 }
 int UTIL_Platform_Init(int argc, char *argv[])
 {
@@ -77,6 +85,7 @@ void __wrap_SDL_Delay(Uint32 ms)
     do {
         PAL_PocketAudioPump();
         if (ms) __real_SDL_Delay(1);
+        PAL_PocketLogHeartbeat("delay");
     } while ((Uint32)(SDL_GetTicks() - start) < ms);
 }
 /* Upstream save API ignores I/O return values; never silently report failure. */
@@ -106,14 +115,15 @@ int SDL_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid)
     SDL_Color saved_colors[256];
     int restore = gpScreen && VIDEO_GetPalette();
     if (!data) return -1;
+    PAL_PocketLog("MESSAGEBOX %s: %s", data->title ? data->title : "", data->message ? data->message : "");
     of_video_get_mode(&previous);
     if (restore) memcpy(saved_colors, VIDEO_GetPalette(), sizeof(saved_colors));
     /* The terminal shares the game CLUT and may change video geometry. */
     of_video_set_display_mode(OF_DISPLAY_TERMINAL);
     of_video_palette_bulk(terminal_colors, 16);
     /* This port disables the launch-settings dialog; all calls are OK-only. */
-    printf("\033[0m\033[2J\033[H%s\n\n%s\n\nPress A to continue.\n",
-           data->title ? data->title : "PAL", data->message ? data->message : "");
+    printf("\033[0m\033[2J\033[H%s\n\n%s\n\nLast log: %s\nLog: Saves/<platform>/common/PAL_debug.log (quit core to save)\nPress A to continue.\n",
+           data->title ? data->title : "PAL", data->message ? data->message : "", PAL_PocketLogLast());
     of_input_poll_p0();
     while (of_btn(OF_BTN_A)) { PAL_PocketAudioPump(); __real_SDL_Delay(1); of_input_poll_p0(); }
     while (!(of_btn(OF_BTN_A))) { PAL_PocketAudioPump(); __real_SDL_Delay(1); of_input_poll_p0(); }

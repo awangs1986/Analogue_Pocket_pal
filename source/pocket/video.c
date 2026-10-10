@@ -3,6 +3,7 @@
  * Copyright (c) 2009-2011 Wei Mingzhi and 2011-2026 SDLPAL contributors.
  */
 #include "main.h"
+#include "pocket_log.h"
 #include "of_video.h"
 #include "video_pixels.h"
 
@@ -57,12 +58,14 @@ INT VIDEO_Startup(VOID)
     };
     of_video_mode_t actual;
     if (g_ready) return 0;
+    PAL_PocketLog("VIDEO: set 320x200 8bit");
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0 ||
         of_video_check_mode(&requested, NULL) != 0 ||
         of_video_set_mode(&requested) != 0 || !native_mode(&actual)) {
         UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket requires native 320x200 indexed video; runtime mode unavailable.\n");
         return -1;
     }
+    PAL_PocketLog("VIDEO: mode %ux%u stride %u color %u", actual.width, actual.height, actual.stride, actual.color_mode);
     gpScreen = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
     gpScreenBak = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
     gpScreenReal = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
@@ -104,6 +107,7 @@ VOID VIDEO_RenderCopy(VOID)
     of_video_mode_t mode;
     uint8_t *frame;
     PAL_PocketAudioPump();
+    PAL_PocketLogHeartbeat("render");
     if (!g_ready || g_bRenderPaused || g_avi_mode != AVI_OFF) return;
     if (!native_mode(&mode)) {
         UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket video mode changed unexpectedly; refusing to scale the game canvas.\n");
@@ -307,6 +311,7 @@ VOID VIDEO_ChangeDepth(INT bpp)
             of_video_get_mode(&actual);
             if (actual.color_mode == OF_VIDEO_MODE_RGB555 && actual.width == PAL_POCKET_WIDTH &&
                 actual.height == PAL_POCKET_HEIGHT && actual.stride >= PAL_POCKET_WIDTH * 2) {
+                PAL_PocketLog("VIDEO: AVI RGB555 mode");
                 g_avi_mode = AVI_RGB555;
                 UTIL_LogOutput(LOGLEVEL_INFO, "Pocket AVI: 320x200 RGB555 framebuffer\n");
                 return;
@@ -323,6 +328,7 @@ VOID VIDEO_ChangeDepth(INT bpp)
             PAL_PocketPalette332(colors);
             of_video_palette_bulk(colors, PAL_POCKET_COLORS);
         }
+        PAL_PocketLog("VIDEO: AVI dither332 mode");
         g_avi_mode = AVI_DITHER332;
         UTIL_LogOutput(LOGLEVEL_WARNING, "Pocket AVI: RGB555 unavailable, using 3-3-2 dithered palette\n");
         return;

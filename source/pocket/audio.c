@@ -3,6 +3,7 @@
  * Replaces sdlpal/audio.c and oggplay.c for the Pocket target only.
  */
 #include "palcommon.h"
+#include "pocket_log.h"
 #include "global.h"
 #include "palcfg.h"
 #include "audio.h"
@@ -119,7 +120,7 @@ INT AUDIO_OpenDevice(VOID)
 {
     if (gAudioDevice.fOpened) return -1;
     if (!of_has_feature(OF_HW_MIXER)) {
-        fprintf(stderr, "Pocket audio: OS mixer service unavailable\n");
+        PAL_PocketLog("AUDIO: OS mixer service unavailable");
         return -3;
     }
     music = ppa_create();
@@ -140,11 +141,15 @@ INT AUDIO_OpenDevice(VOID)
     gAudioDevice.spec.samples = MIX_FRAMES;
     gAudioDevice.fMusicEnabled = gAudioDevice.fSoundEnabled = TRUE;
     set_volumes();
+    PAL_PocketLog("AUDIO: resampler_init");
     resampler_init();
+    PAL_PocketLog("AUDIO: SOUND_Init");
     gAudioDevice.pSoundPlayer = SOUND_Init();
     gAudioDevice.pSoundBuffer = sfx_buffer;
+    PAL_PocketLog("AUDIO: player=%p of_audio_init", (void *)gAudioDevice.pSoundPlayer);
     of_audio_init();
     capacity = of_audio_free();
+    PAL_PocketLog("AUDIO: ring capacity=%d", capacity);
     if (capacity <= 1) {
         if (gAudioDevice.pSoundPlayer)
             gAudioDevice.pSoundPlayer->Shutdown(gAudioDevice.pSoundPlayer);

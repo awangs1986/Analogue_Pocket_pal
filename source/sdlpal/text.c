@@ -23,6 +23,12 @@
 //
 
 #include "main.h"
+#if defined(__POCKET__)
+#include "pocket_log.h"
+#define PLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define PLOG(...) ((void)0)
+#endif
 #include <errno.h>
 #include <wctype.h>
 
@@ -673,7 +679,9 @@ PAL_InitText(
 	   //
 	   // Open the message, index and word data files.
 	   //
+	   PLOG("InitText: message file %s", gConfig.pszMsgFile);
 	   FILE *fp = UTIL_OpenRequiredFileForMode(gConfig.pszMsgFile, "r");
+	   PLOG("InitText: opened %p, parsing", (void *)fp);
 
 	   //
 	   // Read the contents of the message, index and word data files.
@@ -685,6 +693,7 @@ PAL_InitText(
 	   else
 	   {
 		   DWORD dwWordLength = 0;
+		   PLOG("InitText: parsed words=%d msgs=%d", g_TextLib.nWords, g_TextLib.nMsgs);
 		   int i;
 		   for (i = 1; i < g_TextLib.nWords; i++)
 		   {
@@ -715,6 +724,7 @@ PAL_InitText(
 	   //
 	   // Open the message and word data files.
 	   //
+	   PLOG("InitText: DOS m.msg/word.dat");
 	   fpMsg = UTIL_OpenRequiredFile("m.msg");
 	   fpWord = UTIL_OpenRequiredFile("word.dat");
 

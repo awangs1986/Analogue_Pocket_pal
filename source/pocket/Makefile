@@ -8,6 +8,7 @@ ENGINE := $(ROOT)/sdlpal
 BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
 USE_SDK_CONTAINER ?= 0
+CFLAGS += $(EXTRA_CFLAGS)
 CFLAGS += -std=gnu99 -MMD -MP -D_GNU_SOURCE -DUSE_SDL3=0 -D__POCKET__=1 \
  -DSDL_LOADSO_DISABLED=1 -DSDL_DYNAMIC_API=0 \
  -I. -I$(ENGINE) -I$(ENGINE)/sdl_compat -I$(ENGINE)/liboggvorbis/include \
@@ -20,7 +21,7 @@ ENGINE_NAMES := aviplay battle ending fight font game global itemmenu magicmenu 
 SRCS := $(addprefix $(ENGINE)/,$(addsuffix .c,$(ENGINE_NAMES))) \
  $(ENGINE)/sdl_compat/sdl_compat.c \
  platform.c video.c input.c files.c audio.c audio_stream.c \
- pocket_resample.c sfx_cache.c \
+ pocket_resample.c sfx_cache.c pocket_log.c \
  $(wildcard $(ENGINE)/liboggvorbis/src/*.c)
 include $(SDK_DIR)/sdk.mk
 -include $(shell find $(BUILD_DIR) -name "*.d" 2>/dev/null)

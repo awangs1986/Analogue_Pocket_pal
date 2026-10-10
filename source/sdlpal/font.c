@@ -20,6 +20,12 @@
 //
 
 #include "font.h"
+#if defined(__POCKET__)
+#include "pocket_log.h"
+#define PLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define PLOG(...) ((void)0)
+#endif
 #include "util.h"
 #include "text.h"
 
@@ -111,8 +117,10 @@ static void PAL_LoadEmbeddedFont(void)
 	//
 	// Load the wor16.asc file.
 	//
+	PLOG("Font: embedded wor16.asc");
 	if (NULL == (fp = UTIL_OpenFile("wor16.asc")))
 	{
+		PLOG("Font: no wor16.asc, using built-in unifont");
 		return;
 	}
 

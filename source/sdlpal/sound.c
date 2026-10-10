@@ -20,6 +20,12 @@
 //
 
 #include "palcommon.h"
+#if defined(__POCKET__)
+#include "pocket_log.h"
+#define PLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define PLOG(...) ((void)0)
+#endif
 #include "global.h"
 #include "palcfg.h"
 #include "audio.h"
@@ -1068,6 +1074,7 @@ SOUND_Init(
 	for (i = 0; i < 2; i++)
 	{
 		FILE *mkf = UTIL_OpenFile(mkfs[i]);
+		PLOG("SOUND_Init: %s -> %p (sfx cache %u bytes)", mkfs[i], (void *)mkf, (unsigned)PAL_POCKET_SFX_CACHE_BYTES);
 		if (mkf)
 		{
 			LPSOUNDPLAYER player = (LPSOUNDPLAYER)malloc(sizeof(SOUNDPLAYER));
