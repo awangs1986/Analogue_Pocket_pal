@@ -750,7 +750,9 @@
     "source/pocket/fpga/timing-closure-tc6/patches/0003-tc5-EXCLUDE_GPU-gpu_min-register-compatible-stub-imm.patch": "edb157b06fd54a2564104f4caabfedb3d6b50c4a1158455b433b7fe68e8100eb",
     "source/pocket/fpga/timing-closure-tc6/patches/0004-tc6-false-path-to-the-unused-DDIO-rising-edge-captur.patch": "e3b4e89015a004089d2bebbeda6a7b8f25d7a36cda6a2f113a643a152a5366f0",
     "source/pocket/fpga/timing-closure-tc6/series.json": "37f8318ac13807e1d87fa80a90230ba1820960dc64f732526441222bc0c90845",
-    "source/pocket/tools/package_tc6.py": "dbf4a0903eb788b9efdcb7282534052deeaa1f8e7ed559bd192b4e1cc7ed64d3"
+    "source/pocket/tools/package_tc6.py": "dbf4a0903eb788b9efdcb7282534052deeaa1f8e7ed559bd192b4e1cc7ed64d3",
+    "source/pocket/tests/test_make_pal_pak_from_steam.py": "a6c89325e4d3dfc638760d8e7ad5e0f9046436308e87c6bbbb0713c960f5c93d",
+    "source/pocket/tools/make_pal_pak_from_steam.py": "3c8671571c5c150b8fd6d769c2863d849fce2391324834363141c3f2c9a495de"
   },
   "publication_excluded": [
     "SHA256SUMS",
