@@ -2,6 +2,7 @@
  * SDLPAL/openfpgaOS adapter: cooperative CPU Vorbis + existing WAV/VOC SFX.
  * Replaces sdlpal/audio.c and oggplay.c for the Pocket target only.
  */
+#include "sfx_cache.h"
 #include "palcommon.h"
 #include "pocket_log.h"
 #include "global.h"
@@ -311,6 +312,7 @@ void PAL_PocketAudioPump(void)
     const ppa_stats *stats;
     if (!gAudioDevice.fOpened || lock_depth || pumping) return;
     pumping = 1;
+    PAL_PocketSfxPump();
     start = of_time_us();
     if (have_pump_time) {
         gap = start - last_pump_us;

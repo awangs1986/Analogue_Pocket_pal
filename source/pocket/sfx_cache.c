@@ -11,6 +11,38 @@ enum { SLICE_FRAMES = 4096 };
 
 static PAL_PocketSfx *head, *tail;     /* head = most recently used */
 static uint32_t used_bytes, n_entries, n_hits, n_misses;
+uint32_t PAL_PocketTimeUs(void);
+
+/* Progressive conversion: the first slice is converted synchronously and the
+ * effect starts at once; the rest is converted from PAL_PocketSfxPump()
+ * (called by the audio pump, ~10x faster than real time). The PCM buffer is
+ * zero-filled so a starved mixer can only ever hear silence, never garbage. */
+static struct {
+    PAL_PocketSfx *e;
+    int16_t *src;
+    uint32_t in_frames, out_frames, done, t0, us;
+    int channels, rate, out_rate;
+} job;
+static int job_busy;
+static void job_step(uint32_t frames)
+{
+    uint32_t t = PAL_PocketTimeUs();
+    if (!job.e || job_busy) return;
+    job_busy = 1;
+    job.done += (uint32_t)ppr_convert_part(job.src, job.in_frames, job.channels, job.rate, job.out_rate,
+                                           job.e->pcm, job.done, frames);
+    job.us += PAL_PocketTimeUs() - t;
+    if (job.done >= job.out_frames) {
+        PAL_PocketLog("SFX key=%d resampled %u frames: %u us CPU, done %u ms after start",
+                      job.e->key, (unsigned)job.out_frames, (unsigned)job.us,
+                      (unsigned)((PAL_PocketTimeUs() - job.t0) / 1000));
+        free(job.src);
+        memset(&job, 0, sizeof job);
+    }
+    job_busy = 0;
+}
+static void job_finish(void) { while (job.e && !job_busy) job_step(SLICE_FRAMES); }
+void PAL_PocketSfxPump(void) { if (job.e) job_step(SLICE_FRAMES); }
 
 static void unlink_entry(PAL_PocketSfx *e)
 {
@@ -26,7 +58,9 @@ static void push_front(PAL_PocketSfx *e)
 }
 static void evict(uint32_t need)
 {
-    PAL_PocketSfx *e = tail;
+    PAL_PocketSfx *e;
+    job_finish();
+    e = tail;
     while (e && used_bytes + need > PAL_POCKET_SFX_CACHE_BYTES) {
         PAL_PocketSfx *prev = e->prev;
         if (!e->refs) {
@@ -58,7 +92,8 @@ PAL_PocketSfx *PAL_PocketSfxAcquire(int key, const void *data, uint32_t bytes,
     PAL_PocketLog("SFX cache: key=%d %u frames %dbit %dch %dHz -> %u bytes (used %u, entries %u)", key, (unsigned)in_frames, bits, channels, rate, (unsigned)size, (unsigned)used_bytes, (unsigned)n_entries);
     evict(size);
     src = (int16_t *)malloc((size_t)in_frames * channels * sizeof(int16_t));
-    e = (PAL_PocketSfx *)malloc(size);
+    job_finish();
+    e = (PAL_PocketSfx *)calloc(1, size);
     if (!src || !e) { free(src); free(e); return NULL; }
     if (bits == 8) {
         const uint8_t *u = (const uint8_t *)data;
@@ -72,13 +107,12 @@ PAL_PocketSfx *PAL_PocketSfxAcquire(int key, const void *data, uint32_t bytes,
         memcpy(e->pcm, src, (size_t)in_frames * channels * sizeof(int16_t));
         e->frames = in_frames;
     } else {
-        uint32_t done = 0;
-        while (done < out_frames) {
-            done += (uint32_t)ppr_convert_part(src, in_frames, channels, rate, out_rate,
-                                               e->pcm, done, SLICE_FRAMES);
-            PAL_PocketAudioDrain();
-        }
         e->frames = out_frames;
+        job.e = e; job.src = src; job.in_frames = in_frames; job.out_frames = out_frames;
+        job.done = 0; job.us = 0; job.t0 = PAL_PocketTimeUs();
+        job.channels = channels; job.rate = rate; job.out_rate = out_rate;
+        src = NULL;
+        job_step(SLICE_FRAMES);   /* first ~85 ms of audio now; the rest progressively */
     }
     free(src);
     push_front(e);

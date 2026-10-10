@@ -23,5 +23,7 @@ typedef struct PAL_PocketSfx {
 PAL_PocketSfx *PAL_PocketSfxAcquire(int key, const void *data, uint32_t bytes,
                                     int bits, int channels, int rate, int out_rate);
 void PAL_PocketSfxRelease(PAL_PocketSfx *sfx);
+/* Continue converting a first-played effect in the background. */
+void PAL_PocketSfxPump(void);
 void PAL_PocketSfxStats(uint32_t *entries, uint32_t *bytes, uint32_t *hits, uint32_t *misses);
 #endif

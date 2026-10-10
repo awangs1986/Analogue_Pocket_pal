@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * See pocket_resample.h. Coefficients are computed once with the FPU at
- * start-up; the per-sample path is integer only. */
+ * See pocket_resample.h. Coefficients are precomputed on the host
+ * (tools/gen_resample_coef.c): computing them at run time used soft-float
+ * double on RV32 and stalled the first SFX play for ~2.4 s. Integer only. */
 #include "pocket_resample.h"
-#include <math.h>
 #include <string.h>
 
 #define PHASES (1 << PPR_PHASE_BITS)
@@ -10,41 +10,9 @@
 #define CUTOFF 0.45            /* cycles per source sample (0.9 x Nyquist) */
 #define KAISER_BETA 7.0
 
-static int16_t coef[PHASES][PPR_TAPS];
-static int ready;
+#include "pocket_resample_coef.h"
 
-static double bessel_i0(double x)
-{
-    double sum = 1.0, term = 1.0, q = x * x / 4.0;
-    for (int k = 1; k < 32; ++k) { term *= q / ((double)k * k); sum += term; }
-    return sum;
-}
-
-void ppr_init_tables(void)
-{
-    if (ready) return;
-    double i0b = bessel_i0(KAISER_BETA);
-    for (int p = 0; p < PHASES; ++p) {
-        double frac = (double)p / PHASES, h[PPR_TAPS], sum = 0;
-        for (int k = 0; k < PPR_TAPS; ++k) {
-            /* tap k sits at source offset (k - HALF + 1) relative to floor(pos) */
-            double t = (double)(k - HALF + 1) - frac;
-            double x = 2.0 * CUTOFF * t;
-            double sinc = fabs(x) < 1e-9 ? 1.0 : sin(M_PI * x) / (M_PI * x);
-            double r = t / (double)HALF;
-            double w = fabs(r) >= 1.0 ? 0.0 : bessel_i0(KAISER_BETA * sqrt(1.0 - r * r)) / i0b;
-            h[k] = 2.0 * CUTOFF * sinc * w;
-            sum += h[k];
-        }
-        int isum = 0;
-        for (int k = 0; k < PPR_TAPS; ++k) {
-            coef[p][k] = (int16_t)lrint(h[k] / sum * 16384.0);
-            isum += coef[p][k];
-        }
-        coef[p][HALF - 1 + (p >= PHASES / 2)] += (int16_t)(16384 - isum);  /* exact DC gain */
-    }
-    ready = 1;
-}
+void ppr_init_tables(void) { /* table is precomputed at build time */ }
 
 static inline int16_t sat16(int32_t v)
 {
@@ -55,7 +23,14 @@ static inline int16_t fir(const int16_t *x, uint32_t frac16)
 {
     const int16_t *c = coef[frac16 >> (16 - PPR_PHASE_BITS)];
     int32_t acc = 8192;
+#if PPR_TAPS == 16
+    acc += x[0] * c[0] + x[1] * c[1] + x[2] * c[2] + x[3] * c[3]
+         + x[4] * c[4] + x[5] * c[5] + x[6] * c[6] + x[7] * c[7]
+         + x[8] * c[8] + x[9] * c[9] + x[10] * c[10] + x[11] * c[11]
+         + x[12] * c[12] + x[13] * c[13] + x[14] * c[14] + x[15] * c[15];
+#else
     for (int k = 0; k < PPR_TAPS; ++k) acc += (int32_t)x[k] * c[k];
+#endif
     return sat16(acc >> 14);
 }
 
@@ -80,8 +55,8 @@ size_t ppr_convert_part(const int16_t *in, size_t in_frames, int channels,
     if (channels < 1 || channels > 2 || first >= n) return 0;
     ppr_init_tables();
     end = first + count < n ? first + count : n;
-    for (o = first; o < end; ++o) {
-        uint64_t pos = (uint64_t)o * step;
+    uint64_t pos = (uint64_t)first * step;   /* incremental: no 64-bit multiply per sample */
+    for (o = first; o < end; ++o, pos += step) {
         long base = (long)(pos >> 16);
         uint32_t frac = (uint32_t)(pos & 0xffff);
         for (int ch = 0; ch < channels; ++ch) {
