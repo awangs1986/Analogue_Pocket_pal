@@ -8,9 +8,11 @@
  * the slot to SD when the core is quit from the Pocket menu
  * (Saves/<platform>/common/PAL_debug.log).
  *
- * Screen: until the game reaches the title (PAL_PocketLogBootDone), every
- * line is also printed to the openfpgaOS terminal and the terminal is shown
- * as a white overlay above the framebuffer, so a hang shows the last step. */
+ * Screen: until the game reaches the opening menu (PAL_PocketLogBootDone),
+ * every line is printed to the openfpgaOS terminal and the LCD is kept on
+ * the terminal (the overlay mode only composites on app flips, so it showed
+ * nothing on hardware), with the 16 terminal colours re-installed because
+ * the terminal shares the game CLUT. The game renders unseen until then. */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -27,6 +29,16 @@ static char g_buf[LOG_CAP];
 static uint32_t g_len, g_lines;
 static int g_registered, g_boot_done, g_busy, g_full;
 static char g_last[160];
+static const uint32_t term_colors[16] = {
+    0x000000, 0x0000aa, 0x00aa00, 0x00aaaa, 0xaa0000, 0xaa00aa, 0xaa5500, 0xaaaaaa,
+    0x555555, 0x5555ff, 0x55ff55, 0x55ffff, 0xff5555, 0xff55ff, 0xffff55, 0xffffff
+};
+void PAL_PocketVideoRestorePalette(void);
+static void show_terminal(void)
+{
+    of_video_palette_bulk(term_colors, 16);
+    of_video_set_display_mode(OF_DISPLAY_TERMINAL);
+}
 extern FILE *__real_fopen(const char *, const char *);
 
 static void commit(void)
@@ -51,6 +63,11 @@ void PAL_PocketLogRaw(const char *text)
     n = strlen(line);
     if (n && line[n - 1] != '\n' && n + 1 < sizeof(line)) { line[n++] = '\n'; line[n] = 0; }
     snprintf(g_last, sizeof(g_last), "%s", line);
+    if (!g_boot_done) {
+        show_terminal();
+        fputs(line, stdout);
+        fflush(stdout);
+    }
     if (!g_full) {
         if (g_len + n + 32 > LOG_CAP) {
             static const char tail[] = "[log full]\n";
@@ -62,11 +79,6 @@ void PAL_PocketLogRaw(const char *text)
             g_len += (uint32_t)n;
         }
         commit();
-    }
-    if (!g_boot_done) {
-        fputs(line, stdout);
-        fflush(stdout);
-        of_video_set_display_mode(OF_DISPLAY_OVERLAY);
     }
     g_busy = 0;
 }
@@ -94,9 +106,10 @@ void PAL_PocketLogHeartbeat(const char *where)
 void PAL_PocketLogBootDone(void)
 {
     if (g_boot_done) return;
-    PAL_PocketLogRaw("boot done: terminal overlay off");
+    PAL_PocketLogRaw("boot done: LCD back to game framebuffer");
     g_boot_done = 1;
     of_video_set_display_mode(OF_DISPLAY_FRAMEBUFFER);
+    PAL_PocketVideoRestorePalette();
 }
 
 const char *PAL_PocketLogLast(void) { return g_last; }

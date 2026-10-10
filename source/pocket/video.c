@@ -102,6 +102,7 @@ VOID VIDEO_Shutdown(VOID)
     g_shake_time = g_shake_level = 0;
 }
 
+void PAL_PocketVideoRestorePalette(void) { upload_palette(); VIDEO_RenderCopy(); }
 VOID VIDEO_RenderCopy(VOID)
 {
     of_video_mode_t mode;
