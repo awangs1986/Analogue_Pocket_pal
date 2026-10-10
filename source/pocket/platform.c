@@ -87,6 +87,7 @@ void __wrap_SDL_Delay(Uint32 ms)
     Uint32 start = SDL_GetTicks();
     do {
         PAL_PocketAudioPump();
+        PAL_PocketPrefetchPump();
         if (ms) __real_SDL_Delay(1);
         PAL_PocketLogHeartbeat("delay");
     } while ((Uint32)(SDL_GetTicks() - start) < ms);

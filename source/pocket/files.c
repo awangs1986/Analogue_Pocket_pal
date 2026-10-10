@@ -208,40 +208,83 @@ int PAL_PocketFilesInit(void)
 
 #ifndef PAL_POCKET_FILES_HOST
 /* ---- Async double-buffered read-ahead for streamed assets (AVI) ----
- * The SD bridge can run one DMA read while the CPU decodes/draws, so the
- * next block is requested as soon as the current one starts being consumed.
- * Blocks land in CRAM0 staging (zero-copy path). Only one async read may be
- * in flight; every synchronous archive read waits for it first. */
+ * One bridge DMA read may run while the CPU decodes/draws.
+ *
+ * IMPORTANT (fast3 hang): CRAM0 is time-shared between CPU and bridge; while
+ * an async read is in flight CRAM0 belongs to the bridge and any CPU access
+ * to it (our old CRAM0 staging buffers, or the save/log slots) stalls. So
+ * the destinations are now ordinary SDRAM buffers: the OS DMAs into its own
+ * bounce window and copies out after completion, and the CPU never touches
+ * CRAM0 while a read is outstanding. Every other file/save/log access first
+ * waits for the in-flight read (PAL_PocketFilesQuiesce). Waits time out
+ * (3 s; the OS ages a dead transfer out at 2 s) and then read-ahead is
+ * disabled for good and the stream falls back to synchronous reads. */
 void PAL_PocketAudioDrain(void);
-enum { RA_BUFS = 2 };
+uint32_t PAL_PocketTimeUs(void);
+enum { RA_BUFS = 2, RA_TIMEOUT_US = 3000000, RA_PF = 2 };
+/* Background RAM mirror of one asset (sounds.mkf): 64 KiB blocks fetched by
+ * async reads whenever the bridge is idle, so the first play of a sound
+ * effect no longer waits ~50 ms on SD. */
+static const asset_entry *pf_entry;
+static uint8_t *pf_data, *pf_have;
+static uint32_t pf_blocks, pf_next, pf_pending, pf_loaded, pf_t0;
+static void pf_complete(int result)
+{
+    if (!pf_entry) return;
+    if (result >= 0 && !pf_have[pf_pending]) { pf_have[pf_pending] = 1; ++pf_loaded; }
+    if (pf_loaded == pf_blocks)
+        FLOG("prefetch: %s fully cached (%lu KiB) in %lu ms", pf_entry->name,
+             (unsigned long)(pf_entry->size / 1024), (unsigned long)((PAL_PocketTimeUs() - pf_t0) / 1000));
+}
 static uint8_t *ra_buf[RA_BUFS];
 static uint32_t ra_block;
-static int ra_ready_init, ra_ok;
+static int ra_ready_init, ra_ok, ra_disabled;
 static volatile int ra_inflight = -1, ra_done = 1, ra_result;
+static uint32_t ra_stat_reads, ra_stat_wait_us, ra_stat_wait_max, ra_stat_hits, ra_stat_sync, ra_stat_busy;
 static void ra_callback(int token, int result) { (void)token; ra_result = result; ra_done = 1; }
-static void ra_wait_idle(void)
+/* Returns 0 when idle, -1 after a timeout (read-ahead then disabled). */
+static int ra_wait_idle(void);
+static int ra_wait_idle(void)
 {
-    if (ra_inflight < 0) return;
-    while (!ra_done) { PAL_PocketAudioDrain(); of_file_async_poll(); }
-    ra_inflight = -1;
+    uint32_t t0, w;
+    if (ra_inflight < 0) return 0;
+    t0 = PAL_PocketTimeUs();
+    while (!ra_done) {
+        of_file_async_poll();
+        if (ra_done) break;
+        PAL_PocketAudioDrain();
+        if ((uint32_t)(PAL_PocketTimeUs() - t0) > RA_TIMEOUT_US) {
+            { int pf = ra_inflight == RA_PF; ra_inflight = -1; if (pf) pf_complete(-1); }
+            ra_disabled = 1;
+            ra_result = -1;
+            ra_done = 1;
+            FLOG("readahead: TIMEOUT waiting for async read; disabled, using sync reads");
+            return -1;
+        }
+    }
+    w = PAL_PocketTimeUs() - t0;
+    ra_stat_wait_us += w;
+    if (w > ra_stat_wait_max) ra_stat_wait_max = w;
+    { int pf = ra_inflight == RA_PF; ra_inflight = -1; if (pf) pf_complete(ra_result); }
+    return ra_result < 0 ? -1 : 0;
 }
+void PAL_PocketFilesQuiesce(void) { (void)ra_wait_idle(); }
 static int ra_init(void)
 {
-    uint32_t maxr, stage;
+    uint32_t maxr;
     int i;
+    if (ra_disabled) return 0;
     if (ra_ready_init) return ra_ok;
     ra_ready_init = 1;
     maxr = of_file_async_max_read();
-    stage = of_file_dma_stage_size();
-    ra_block = 128u * 1024u;
+    ra_block = 64u * 1024u;
     if (maxr && ra_block > maxr) ra_block = maxr & ~511u;
-    if (stage && ra_block * RA_BUFS > stage) ra_block = (stage / RA_BUFS) & ~511u;
-    if (!maxr || ra_block < 16384u) { FLOG("readahead: unavailable (max %u stage %u)", (unsigned)maxr, (unsigned)stage); return ra_ok = 0; }
+    if (!maxr || ra_block < 8192u) { FLOG("readahead: unavailable (max %u)", (unsigned)maxr); return ra_ok = 0; }
     for (i = 0; i < RA_BUFS; ++i)
-        if (!(ra_buf[i] = (uint8_t *)of_file_dma_stage_alloc(ra_block, 64))) {
-            FLOG("readahead: stage alloc failed"); return ra_ok = 0;
+        if (!(ra_buf[i] = (uint8_t *)aligned_alloc(64, ra_block))) {
+            FLOG("readahead: alloc failed"); return ra_ok = 0;
         }
-    FLOG("readahead: %u x %u KiB blocks (async max %u, stage %u)", RA_BUFS, (unsigned)(ra_block / 1024), (unsigned)maxr, (unsigned)stage);
+    FLOG("readahead: %u x %u KiB SDRAM buffers (async max %u)", RA_BUFS, (unsigned)(ra_block / 1024), (unsigned)maxr);
     return ra_ok = 1;
 }
 typedef struct {
@@ -249,44 +292,59 @@ typedef struct {
     uint32_t position;
     uint32_t off[RA_BUFS], len[RA_BUFS];
     int valid[RA_BUFS];
-    int active;
 } ra_stream;
 static ra_stream *ra_owner;
 static int ra_issue(ra_stream *s, int b, uint32_t pos)
 {
     uint32_t n = s->entry->size - pos;
-    if (pos >= s->entry->size) return -1;
+    int tok;
+    if (ra_disabled || pos >= s->entry->size) return -1;
     if (n > ra_block) n = ra_block;
-    ra_wait_idle();
+    if (ra_wait_idle() < 0 && ra_disabled) return -1;
     s->valid[b] = 0; s->off[b] = pos; s->len[b] = n;
     ra_done = 0; ra_result = 0;
-    if (of_file_read_async((int)PAL_POCKET_ASSET_SLOT, s->entry->offset + pos, ra_buf[b], n, ra_callback) < 0) {
-        ra_done = 1; return -1;
-    }
+    tok = of_file_read_async((int)PAL_POCKET_ASSET_SLOT, s->entry->offset + pos, ra_buf[b], n, ra_callback);
+    if (tok < 0) { ra_done = 1; ++ra_stat_busy; return -1; }
     ra_inflight = b;
+    ++ra_stat_reads;
     return 0;
 }
-/* Make buffer b hold pos (waiting for an in-flight read if it covers it). */
+/* Synchronous fallback straight from the archive into dst. */
+static ssize_t ra_sync_read(ra_stream *s, char *dst, size_t wanted)
+{
+    size_t got;
+    uint32_t remaining = s->entry->size - s->position;
+    if (wanted > remaining) wanted = remaining;
+    if (!wanted) return 0;
+    ra_wait_idle();
+    if (fseek(archive, (long)(s->entry->offset + s->position), SEEK_SET)) return -1;
+    got = fread(dst, 1, wanted, archive);
+    s->position += (uint32_t)got;
+    ++ra_stat_sync;
+    return got ? (ssize_t)got : -1;
+}
+/* Buffer index holding pos, waiting for an in-flight read that covers it;
+ * -1 when it must be fetched another way. */
 static int ra_find(ra_stream *s, uint32_t pos)
 {
     int b;
+    if (ra_inflight == RA_PF && ra_done) { ra_inflight = -1; pf_complete(ra_result); }
     if (ra_inflight >= 0 && ra_done) {
-        if (ra_result >= 0) s->valid[ra_inflight] = 1;
+        b = ra_inflight;
         ra_inflight = -1;
+        if (ra_result >= 0) s->valid[b] = 1;
     }
     for (b = 0; b < RA_BUFS; ++b)
-        if (s->valid[b] && pos >= s->off[b] && pos < s->off[b] + s->len[b]) return b;
-    if (ra_inflight >= 0 && pos >= s->off[ra_inflight] && pos < s->off[ra_inflight] + s->len[ra_inflight]) {
+        if (s->valid[b] && pos >= s->off[b] && pos < s->off[b] + s->len[b]) { ++ra_stat_hits; return b; }
+    if (ra_inflight >= 0 && ra_inflight < RA_BUFS && pos >= s->off[ra_inflight] && pos < s->off[ra_inflight] + s->len[ra_inflight]) {
         b = ra_inflight;
-        ra_wait_idle();
-        if (ra_result < 0) return -1;
+        if (ra_wait_idle() < 0) return -1;
         s->valid[b] = 1;
         return b;
     }
-    /* miss (start or seek): load synchronously into buffer 0 */
+    /* miss (start or seek): fetch into buffer 0 and wait */
     if (ra_issue(s, 0, pos) < 0) return -1;
-    ra_wait_idle();
-    if (ra_result < 0) return -1;
+    if (ra_wait_idle() < 0) return -1;
     s->valid[0] = 1;
     return 0;
 }
@@ -294,14 +352,17 @@ static ssize_t ra_read(void *cookie, char *dst, size_t wanted)
 {
     ra_stream *s = cookie;
     size_t done = 0;
-    if (ra_owner != s) { errno = EIO; return -1; }
     while (done < wanted && s->position < s->entry->size) {
-        int b = ra_find(s, s->position), other;
+        int b = ra_disabled ? -1 : ra_find(s, s->position), other;
         uint32_t avail, n;
-        if (b < 0) { errno = EIO; return done ? (ssize_t)done : -1; }
-        /* prefetch the block after this one into the other buffer */
+        if (b < 0) {
+            ssize_t r = ra_sync_read(s, dst + done, wanted - done);
+            if (r <= 0) return done ? (ssize_t)done : -1;
+            done += (size_t)r;
+            continue;
+        }
         other = b ^ 1;
-        if (ra_inflight < 0) {
+        if (ra_inflight < 0 && !ra_disabled) {
             uint32_t next = s->off[b] + s->len[b];
             if (next < s->entry->size && !(s->valid[other] && s->off[other] == next))
                 ra_issue(s, other, next);
@@ -317,12 +378,71 @@ static int ra_seek(void *cookie, pal_cookie_offset *offset, int whence);
 static int ra_close(void *cookie)
 {
     ra_wait_idle();
+    FLOG("readahead close: %lu async reads, %lu hits, %lu sync, %lu busy, wait total %lu ms max %lu us%s",
+         (unsigned long)ra_stat_reads, (unsigned long)ra_stat_hits, (unsigned long)ra_stat_sync,
+         (unsigned long)ra_stat_busy, (unsigned long)(ra_stat_wait_us / 1000), (unsigned long)ra_stat_wait_max,
+         ra_disabled ? " (DISABLED)" : "");
+    ra_stat_reads = ra_stat_hits = ra_stat_sync = ra_stat_busy = ra_stat_wait_us = ra_stat_wait_max = 0;
     if (ra_owner == cookie) ra_owner = NULL;
     free(cookie);
     --open_assets;
     return 0;
 }
 #endif
+int PAL_PocketPrefetchStart(const char *name)
+{
+    char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
+    const asset_entry *e;
+    if (pf_entry || normalize(name, canonical) || !archive || !(e = find_asset(canonical))) return -1;
+    if (!ra_init()) return -1;
+    pf_blocks = (e->size + 65535u) / 65536u;
+    pf_data = (uint8_t *)malloc(e->size);
+    pf_have = (uint8_t *)calloc(pf_blocks ? pf_blocks : 1, 1);
+    if (pf_data) { /* keep >= 16 MiB of heap for everything else */
+        void *probe = malloc(16u << 20);
+        if (!probe) { free(pf_data); pf_data = NULL; } else free(probe);
+    }
+    if (!pf_data || !pf_have) {
+        free(pf_data); free(pf_have); pf_data = pf_have = NULL;
+        FLOG("prefetch: no memory for %s (%lu KiB)", name, (unsigned long)(e->size / 1024));
+        return -1;
+    }
+    pf_next = pf_loaded = 0;
+    pf_t0 = PAL_PocketTimeUs();
+    pf_entry = e;
+    FLOG("prefetch: %s %lu KiB in %lu blocks", name, (unsigned long)(e->size / 1024), (unsigned long)pf_blocks);
+    return 0;
+}
+/* Called from idle/delay loops (never from IRQ). Never blocks. */
+void PAL_PocketPrefetchPump(void)
+{
+    uint32_t off, n;
+    if (!pf_entry || ra_disabled || ra_owner || pf_loaded == pf_blocks) return;
+    if (ra_inflight == RA_PF) {
+        if (!ra_done) { of_file_async_poll(); if (!ra_done) return; }
+        ra_inflight = -1;
+        pf_complete(ra_result);
+    }
+    if (ra_inflight != -1) return;
+    while (pf_next < pf_blocks && pf_have[pf_next]) ++pf_next;
+    if (pf_next >= pf_blocks) return;
+    off = pf_next * 65536u;
+    n = pf_entry->size - off; if (n > 65536u) n = 65536u;
+    ra_done = 0; ra_result = 0;
+    if (of_file_read_async((int)PAL_POCKET_ASSET_SLOT, pf_entry->offset + off, pf_data + off, n, ra_callback) < 0) {
+        ra_done = 1; return;
+    }
+    pf_pending = pf_next++;
+    ra_inflight = RA_PF;
+}
+static int pf_covered(const asset_entry *e, uint32_t pos, uint32_t len)
+{
+    uint32_t b, last;
+    if (e != pf_entry || !len) return 0;
+    last = (pos + len - 1) / 65536u;
+    for (b = pos / 65536u; b <= last; ++b) if (!pf_have[b]) return 0;
+    return 1;
+}
 static ssize_t asset_read(void *cookie, char *dst, size_t wanted)
 {
     asset_stream *s = cookie;
@@ -331,6 +451,11 @@ static ssize_t asset_read(void *cookie, char *dst, size_t wanted)
     if (wanted > remaining) wanted = remaining;
     if (!wanted) return 0;
 #ifndef PAL_POCKET_FILES_HOST
+    if (pf_covered(s->entry, s->position, (uint32_t)wanted)) {
+        memcpy(dst, pf_data + s->position, wanted);
+        s->position += (uint32_t)wanted;
+        return (ssize_t)wanted;
+    }
     ra_wait_idle();
 #endif
     if (fseek(archive, (long)(s->entry->offset + s->position), SEEK_SET)) return -1;
@@ -552,6 +677,9 @@ FILE *__wrap_fopen(const char *name, const char *mode)
 }
 static FILE *wrap_fopen_impl(const char *name, const char *mode)
 {
+#ifndef PAL_POCKET_FILES_HOST
+    PAL_PocketFilesQuiesce();
+#endif
     char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
     int index, writing = mode && (mode[0] == 'w' || mode[0] == 'a' || strchr(mode, '+'));
     if (!valid_mode(mode) || normalize(name, canonical)) {

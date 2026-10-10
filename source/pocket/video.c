@@ -2,6 +2,7 @@
  * SDLPAL openfpgaOS video backend. Transitions follow sdlpal/video.c,
  * Copyright (c) 2009-2011 Wei Mingzhi and 2011-2026 SDLPAL contributors.
  */
+#include "files.h"
 #include "main.h"
 #include "pocket_log.h"
 #include "of_video.h"
@@ -109,6 +110,7 @@ VOID VIDEO_RenderCopy(VOID)
     uint8_t *frame;
     PAL_PocketAudioPump();
     PAL_PocketLogHeartbeat("render");
+    PAL_PocketPrefetchPump();
     if (!g_ready || g_bRenderPaused || g_avi_mode != AVI_OFF) return;
     if (!native_mode(&mode)) {
         UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket video mode changed unexpectedly; refusing to scale the game canvas.\n");

@@ -43,8 +43,10 @@ static void show_terminal(void)
 #endif
 extern FILE *__real_fopen(const char *, const char *);
 
+void PAL_PocketFilesQuiesce(void);
 static void commit(void)
 {
+    PAL_PocketFilesQuiesce(); /* CRAM0 (log slot) is the bridge's during async DMA */
     FILE *f = __real_fopen(LOG_NAME, "wb");
     if (!f) return;
     fwrite(g_buf, 1, g_len, f);

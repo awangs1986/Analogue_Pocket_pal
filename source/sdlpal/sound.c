@@ -1086,6 +1086,9 @@ SOUND_Init(
 		PLOG("SOUND_Init: %s -> %p (sfx cache %u bytes)", mkfs[i], (void *)mkf, (unsigned)PAL_POCKET_SFX_CACHE_BYTES);
 		if (mkf)
 		{
+#ifdef __POCKET__
+			{ extern int PAL_PocketPrefetchStart(const char *); PAL_PocketPrefetchStart(mkfs[i]); }
+#endif
 			LPSOUNDPLAYER player = (LPSOUNDPLAYER)malloc(sizeof(SOUNDPLAYER));
 			memset(&player->soundlist, 0, sizeof(WAVEDATA));
 			player->Play = SOUND_Play;

@@ -150,8 +150,8 @@ def convert(msg_txt, word_txt, sss, out, variant="cht"):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--pal98-dir", required=True, type=Path)
-    p.add_argument("--variant", choices=("cht", "chs"), default="cht",
-                   help="cht = Traditional (default), chs = Simplified")
+    p.add_argument("--lang", "--variant", dest="variant", choices=("chs", "cht"), default="chs",
+                   help="chs = Simplified (default), cht = Traditional")
     p.add_argument("--out", required=True, type=Path)
     a = p.parse_args(argv)
     d = a.pal98_dir

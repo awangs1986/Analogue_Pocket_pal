@@ -23,6 +23,11 @@ void PAL_PocketFilesShutdown(void);
 FILE *PAL_PocketOpenAsset(const char *name);
 /* Sequential stream with async double-buffered SD read-ahead (one at a time). */
 FILE *PAL_PocketOpenAssetReadAhead(const char *name);
+/* Wait for any in-flight async read before touching CRAM0/files. */
+void PAL_PocketFilesQuiesce(void);
+/* Background async RAM mirror of one asset (used for sounds.mkf). */
+int PAL_PocketPrefetchStart(const char *name);
+void PAL_PocketPrefetchPump(void);
 /* First archive entry whose name ends with suffix (NULL if none). */
 const char *PAL_PocketFindAssetSuffix(const char *suffix);
 int PAL_PocketHasAsset(const char *name);

@@ -212,8 +212,8 @@ def main() -> int:
                         help="Steam install folder steamapps/common/PAL (or its PAL_DOS / PAL98 subfolder)")
     parser.add_argument("--edition", choices=("dos", "pal98"), default="dos",
                         help="dos (default) or pal98 = Win95 data with AVI movies (PAL98 test core only)")
-    parser.add_argument("--text", choices=("cht", "chs"), default="cht",
-                        help="pal98 only: cht = Traditional Chinese (default), chs = Simplified")
+    parser.add_argument("--lang", "--text", dest="text", choices=("chs", "cht"), default=None,
+                        help="pal98 only: chs = Simplified Chinese (default for pal98), cht = Traditional")
     parser.add_argument("--no-cd-tracks", action="store_true",
                         help="pal98 only: omit ogg/100NN.ogg; those scenes then use the Workshop track")
     parser.add_argument("--music", choices=sorted(MUSIC), default="arranged",
@@ -222,6 +222,8 @@ def main() -> int:
                         help="Downloaded Workshop folder (default: <steamapps>/workshop/content/1546570/<id>)")
     parser.add_argument("--out", required=True, type=Path, help="New output folder for stage/ and pal.pak")
     args = parser.parse_args()
+    if args.text is None:
+        args.text = "chs" if args.edition == "pal98" else "cht"
     try:
         result = build(args.pal_dir, args.music, args.out, args.music_dir,
                        args.edition, args.text, not args.no_cd_tracks)
