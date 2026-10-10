@@ -302,6 +302,7 @@ VOID VIDEO_ChangeDepth(INT bpp)
         };
         of_video_mode_t actual;
         if (g_avi_mode != AVI_OFF) return;
+#ifndef PAL_POCKET_AVI_FORCE_DITHER
         if (of_video_check_mode(&requested, NULL) == 0 && of_video_set_mode(&requested) == 0) {
             of_video_get_mode(&actual);
             if (actual.color_mode == OF_VIDEO_MODE_RGB555 && actual.width == PAL_POCKET_WIDTH &&
@@ -311,6 +312,7 @@ VOID VIDEO_ChangeDepth(INT bpp)
                 return;
             }
         }
+#endif
         /* Restore the indexed mode and dither instead. */
         if (set_native_mode() != 0) {
             UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket AVI: cannot restore indexed mode\n");

@@ -52,7 +52,11 @@ int UTIL_Platform_Init(int argc, char *argv[])
     gConfig.fEnableGLSL = FALSE;
     /* PAL98 (Win95) data carries 1-6.avi; DOS data has none, so PAL_PlayAVI
      * fails to open the file and the original RNG/sprite path runs. */
+#ifdef PAL_POCKET_NO_AVI
+    gConfig.fEnableAviPlay = FALSE;
+#else
     gConfig.fEnableAviPlay = TRUE;
+#endif
     gConfig.eMusicType = MUSIC_OGG;
     gConfig.eCDType = CD_OGG;
     gConfig.iSampleRate = 48000;
