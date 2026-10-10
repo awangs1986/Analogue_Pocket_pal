@@ -4,6 +4,7 @@
 #define TEST_OF_VIDEO_H
 #include <stdint.h>
 #define OF_VIDEO_MODE_8BIT 0
+#define OF_VIDEO_MODE_RGB555 4
 #define OF_DISPLAY_FRAMEBUFFER 1
 typedef struct {
     uint16_t width, height, stride;

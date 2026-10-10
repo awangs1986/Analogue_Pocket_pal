@@ -20,6 +20,7 @@ ENGINE_NAMES := aviplay battle ending fight font game global itemmenu magicmenu 
 SRCS := $(addprefix $(ENGINE)/,$(addsuffix .c,$(ENGINE_NAMES))) \
  $(ENGINE)/sdl_compat/sdl_compat.c \
  platform.c video.c input.c files.c audio.c audio_stream.c \
+ pocket_resample.c sfx_cache.c \
  $(wildcard $(ENGINE)/liboggvorbis/src/*.c)
 include $(SDK_DIR)/sdk.mk
 -include $(shell find $(BUILD_DIR) -name "*.d" 2>/dev/null)

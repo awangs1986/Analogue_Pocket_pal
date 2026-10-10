@@ -6,6 +6,8 @@
 extern SDL_Surface *gpScreenReal;
 static of_video_mode_t mode;
 static uint8_t pages[3][PAL_POCKET_HEIGHT][336];
+static uint8_t rgb_pages[3][PAL_POCKET_HEIGHT][656];
+static int accept_rgb555;
 static uint32_t palette[256];
 static int draw_page, shown_page, flips, flushes, audio_pumps, logs;
 static int surface_count, palette_count, reject_mode, allocations, fail_allocation;
@@ -94,13 +96,22 @@ int SDL_UpperBlit(SDL_Surface *s, const SDL_Rect *sr, SDL_Surface *d, SDL_Rect *
 }
 int of_video_check_mode(const of_video_mode_t *m, of_video_mode_t *out)
 {
-    assert(m->width == 320 && m->height == 200 && m->color_mode == 0);
+    assert(m->width == 320 && m->height == 200);
+    assert(m->color_mode == 0 || (m->color_mode == OF_VIDEO_MODE_RGB555 && m->stride == 640));
     if (out) *out = *m;
+    if (m->color_mode == OF_VIDEO_MODE_RGB555) return accept_rgb555 ? 0 : -1;
     return reject_mode ? -1 : 0;
 }
-int of_video_set_mode(const of_video_mode_t *m) { mode = *m; mode.stride = 336; return 0; }
+int of_video_set_mode(const of_video_mode_t *m)
+{
+    if (m->color_mode == OF_VIDEO_MODE_RGB555 && !accept_rgb555) return -1;
+    mode = *m; mode.stride = m->color_mode == OF_VIDEO_MODE_RGB555 ? 656 : 336; return 0;
+}
 void of_video_get_mode(of_video_mode_t *out) { *out = mode; }
-uint8_t *of_video_surface(void) { return &pages[draw_page][0][0]; }
+uint8_t *of_video_surface(void)
+{
+    return mode.color_mode == OF_VIDEO_MODE_RGB555 ? &rgb_pages[draw_page][0][0] : &pages[draw_page][0][0];
+}
 void of_video_palette_bulk(const uint32_t *colors, int count)
 {
     assert(count == 256); memcpy(palette, colors, sizeof(palette));
@@ -215,7 +226,51 @@ int main(void)
     assert(flips == before);
     mode.height = 200;
     VIDEO_Resize(640, 480);
-    VIDEO_ChangeDepth(16);
+    {
+        /* PAL98 AVI: the SDK tags the 288x180 surface 32-bit; the decoder
+         * writes RGB555 words with a pitch/2 stride. */
+        SDL_Surface *avi = SDL_CreateRGBSurface(0, 288, 180, 32, 0, 0, 0, 0);
+        uint16_t word;
+        for (y = 0; y < 180; ++y)
+            for (x = 0; x < 288; ++x) {
+                word = (uint16_t)((x * 7 + y * 3) & 0x7fff);
+                memcpy((uint8_t *)avi->pixels + (size_t)y * avi->pitch + 2 * x, &word, 2);
+            }
+        accept_rgb555 = 1;
+        VIDEO_ChangeDepth(32);
+        assert(mode.color_mode == OF_VIDEO_MODE_RGB555 && mode.width == 320 && mode.height == 200);
+        before = flips;
+        VIDEO_UpdateScreen(NULL);          /* game redraws are held off */
+        assert(flips == before);
+        VIDEO_DrawSurfaceToScreen(avi);
+        assert(flips == before + 1);
+        for (y = 0; y < 200; ++y)
+            for (x = 0; x < 320; ++x) {
+                uint16_t got;
+                memcpy(&got, &rgb_pages[shown_page][y][2 * x], 2);
+                if (x >= 16 && x < 304 && y >= 10 && y < 190)
+                    assert(got == (uint16_t)(((x - 16) * 7 + (y - 10) * 3) & 0x7fff));
+                else
+                    assert(got == 0);
+            }
+        VIDEO_ChangeDepth(0);
+        assert(mode.color_mode == 0 && flips == before + 2);
+        for (i = 0; i < 256; ++i) assert(palette[i] == PAL_PocketRGB(i, 255 - i, i ^ 0x5a));
+        /* Runtime without 16-bit scanout: dithered fixed 3-3-2 palette. */
+        accept_rgb555 = 0;
+        VIDEO_ChangeDepth(16);
+        assert(mode.color_mode == 0);
+        assert(palette[0xff] == 0xffffff && palette[0xe0] == 0xff0000 && palette[0x03] == 0x0000ff);
+        VIDEO_SetPalette(colors);          /* must not clobber the 3-3-2 CLUT */
+        assert(palette[0xe0] == 0xff0000);
+        VIDEO_DrawSurfaceToScreen(avi);
+        assert(flips == before + 3);
+        assert(pages[shown_page][0][0] == 0 && pages[shown_page][10][15] == 0);
+        for (x = 320; x < 336; ++x) assert(pages[shown_page][100][x] == 0xa5);
+        VIDEO_ChangeDepth(0);
+        for (i = 0; i < 256; ++i) assert(palette[i] == PAL_PocketRGB(i, 255 - i, i ^ 0x5a));
+        SDL_FreeSurface(avi);
+    }
     assert(mode.width == 320 && mode.height == 200 && mode.color_mode == 0);
     assert(flushes == flips && audio_pumps > flips && logs >= 3);
     check_guards();

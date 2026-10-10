@@ -10,6 +10,8 @@
 #include "resampler.h"
 #include "util.h"
 #include "audio_stream.h"
+#include "pocket_resample.h"
+#include "pocket_avi_audio.h"
 #include <of_audio.h>
 #include <of_caps.h>
 #include <of_timer.h>
@@ -27,6 +29,76 @@ static unsigned fade_frames, fade_position;
 static uint32_t last_pump_us, last_report_us;
 static int have_pump_time, hardware_started, was_starved, error_reported;
 static pal_pocket_audio_diagnostics diagnostics;
+
+/* AVI soundtrack (PAL98 1-6.avi): the demuxer pushes PCM chunks as it reads
+ * them; they are converted to 48 kHz stereo immediately (fixed-point FIR)
+ * and queued here. The drain loop mixes them like music, so audio advances
+ * with the hardware sample clock and aviplay.c paces video by SDL_GetTicks
+ * from the same start point. */
+enum { AVI_RING_FRAMES = 4 * 48000, AVI_CHUNK_FRAMES = 4096 };
+static int16_t *avi_ring;
+static uint32_t avi_read, avi_write, avi_dropped;
+static int avi_active, avi_bits, avi_channels;
+static ppr_stream avi_stream;
+
+static uint32_t avi_queued(void) { return avi_write - avi_read; }
+
+int PAL_PocketAVIAudioBegin(int rate, int channels, int bits)
+{
+    if (!gAudioDevice.fOpened || rate <= 0 || (channels != 1 && channels != 2) ||
+        (bits != 8 && bits != 16)) return -1;
+    if (!avi_ring) avi_ring = (int16_t *)malloc(AVI_RING_FRAMES * 2 * sizeof(int16_t));
+    if (!avi_ring) return -1;
+    AUDIO_Lock();
+    ppr_stream_init(&avi_stream, channels, rate, PPA_OUTPUT_RATE);
+    avi_read = avi_write = avi_dropped = 0;
+    avi_bits = bits; avi_channels = channels;
+    avi_active = 1;
+    AUDIO_Unlock();
+    return 0;
+}
+
+void PAL_PocketAVIAudioFeed(const void *data, uint32_t bytes)
+{
+    int16_t in[1024 * 2], out[AVI_CHUNK_FRAMES * 2];
+    const uint8_t *src = (const uint8_t *)data;
+    uint32_t frame_bytes, frames;
+    if (!avi_active || !data) return;
+    frame_bytes = (uint32_t)(avi_channels * avi_bits / 8);
+    frames = bytes / frame_bytes;
+    while (frames) {
+        uint32_t n = frames > 1024 ? 1024 : frames, i, k, produced;
+        for (i = 0; i < n * (uint32_t)avi_channels; ++i)
+            in[i] = avi_bits == 8 ? (int16_t)(((int)src[i] - 128) << 8)
+                                  : (int16_t)(src[2 * i] | (src[2 * i + 1] << 8));
+        src += n * frame_bytes;
+        frames -= n;
+        produced = (uint32_t)ppr_stream_push(&avi_stream, in, n, out, AVI_CHUNK_FRAMES);
+        AUDIO_Lock();
+        for (k = 0; k < produced; ++k) {
+            uint32_t slot;
+            if (avi_queued() >= AVI_RING_FRAMES) { ++avi_read; ++avi_dropped; }
+            slot = (avi_write++ % AVI_RING_FRAMES) * 2;
+            avi_ring[slot] = out[k * avi_channels];
+            avi_ring[slot + 1] = out[k * avi_channels + (avi_channels - 1)];
+        }
+        AUDIO_Unlock();
+        PAL_PocketAudioDrain();
+    }
+}
+
+void PAL_PocketAVIAudioEnd(void)
+{
+    AUDIO_Lock();
+    if (avi_active)
+        fprintf(stderr, "Pocket AVI audio: end with %lu ms unplayed (audio lead), %lu frames dropped\n",
+                (unsigned long)(avi_queued() / 48u), (unsigned long)avi_dropped);
+    avi_active = 0;
+    avi_read = avi_write = 0;
+    AUDIO_Unlock();
+}
+
+uint32_t PAL_PocketAVIAudioQueued(void) { return avi_active ? avi_queued() : 0; }
 
 static int clamp_volume(int v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
 
@@ -139,6 +211,16 @@ void PAL_PocketAudioDrain(void)
             if (gAudioDevice.fSoundEnabled && gAudioDevice.pSoundPlayer)
                 gAudioDevice.pSoundPlayer->FillBuffer(gAudioDevice.pSoundPlayer,
                     (LPBYTE)sfx_buffer, frames * 2 * (int)sizeof(int16_t));
+            if (avi_active) {
+                /* AVI audio takes the music bus (and music volume). */
+                for (i = 0; i < frames && avi_queued(); ++i, ++avi_read) {
+                    uint32_t slot = (avi_read % AVI_RING_FRAMES) * 2;
+                    int l = mix_buffer[i * 2] + avi_ring[slot];
+                    int r = mix_buffer[i * 2 + 1] + avi_ring[slot + 1];
+                    mix_buffer[i * 2] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
+                    mix_buffer[i * 2 + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
+                }
+            }
             for (i = 0; i < frames; ++i) {
                 int ch, volume = gAudioDevice.iMusicVolume;
                 if (fade_position < fade_frames && (size_t)i < have) {

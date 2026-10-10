@@ -29,6 +29,9 @@
 #include "midi.h"
 #include "riff.h"
 #include <math.h>
+#if defined(__POCKET__)
+#include "sfx_cache.h"
+#endif
 
 typedef struct tagWAVESPEC
 {
@@ -56,6 +59,9 @@ typedef struct tagWAVEDATA
 	const void         *current;
 	const void         *end;
 	WAVESPEC            spec;
+#if defined(__POCKET__)
+	PAL_PocketSfx      *cached;		/* 48 kHz S16 copy; base is not owned */
+#endif
 } WAVEDATA;
 
 typedef struct tagSOUNDPLAYER
@@ -723,6 +729,37 @@ SOUND_ResampleMix_S16_Stereo_Stereo(
 	return total_bytes;
 }
 
+#if defined(__POCKET__)
+static int
+SOUND_Mix_Cached48k(
+	void                  *resampler[2],
+	const void            *lpData,
+	const WAVESPEC        *lpSpec,
+	void                  *lpBuffer,
+	int                    iBufLen,
+	const void           **llpData
+)
+/* Pocket: the effect was converted to the 48 kHz device rate when loaded
+ * (sfx_cache.c), so mixing is a saturating add into the stereo stream. */
+{
+	const short *src = (const short *)lpData;
+	short *dst = (short *)lpBuffer;
+	int channels = lpSpec->channels;
+	int frames = lpSpec->size / (2 * channels), out = iBufLen / 4, i;
+	(void)resampler;
+	if (frames > out) frames = out;
+	for (i = 0; i < frames; i++)
+	{
+		int l = *src++, r = channels == 2 ? *src++ : l;
+		l += dst[0]; r += dst[1];
+		dst[0] = l > 32767 ? 32767 : l < -32768 ? -32768 : l;
+		dst[1] = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
+		dst += 2;
+	}
+	if (llpData) *llpData = src;
+	return frames * 4;
+}
+#endif
 
 static BOOL
 SOUND_Play(
@@ -771,6 +808,20 @@ SOUND_Play(
 
 	player->lastSFX = iSoundNum;
 
+#if defined(__POCKET__)
+	PAL_PocketSfx *cached = NULL;
+	if (devspec->channels == 2 &&
+		(cached = PAL_PocketSfxAcquire(iSoundNum, NULL, 0, 0, 0, 0, 0)) != NULL)
+	{
+		buf = NULL;
+		snddata = NULL;
+		memset(&wavespec, 0, sizeof(wavespec));
+		wavespec.channels = (uint8_t)cached->channels;
+		mixer = SOUND_Mix_Cached48k;
+		goto pocket_cached;
+	}
+#endif
+
 	//
 	// Get the length of the sound file.
 	//
@@ -812,6 +863,20 @@ SOUND_Play(
 		return FALSE;
 	}
 
+#if defined(__POCKET__)
+	if (devspec->channels == 2)
+	{
+		cached = PAL_PocketSfxAcquire(iSoundNum, snddata, wavespec.size,
+			wavespec.format == AUDIO_S16 ? 16 : 8, wavespec.channels, wavespec.freq, devspec->freq);
+		if (cached)
+		{
+			free(buf);
+			buf = NULL;
+		}
+	}
+pocket_cached:
+#endif
+
 	AUDIO_Lock();
 
 	cursnd = &player->soundlist;
@@ -831,7 +896,13 @@ SOUND_Play(
 			cursnd->resampler[i] = resampler_create();
 		else
 			resampler_clear(cursnd->resampler[i]);
-		resampler_set_quality(cursnd->resampler[i], AUDIO_IsIntegerConversion(wavespec.freq) ? RESAMPLER_QUALITY_MIN : gConfig.iResampleQuality);
+		// Exact integer *downsampling* is lossless with ZOH (it only drops
+		// samples). Integer *upsampling* (e.g. 8000 -> 48000 Hz) is not: ZOH
+		// repeats each sample and leaves strong images, so use the configured
+		// interpolator there.
+		resampler_set_quality(cursnd->resampler[i],
+			(AUDIO_IsIntegerConversion(wavespec.freq) && wavespec.freq >= devspec->freq) ?
+				RESAMPLER_QUALITY_MIN : gConfig.iResampleQuality);
 		resampler_set_rate(cursnd->resampler[i], (double)wavespec.freq / (double)devspec->freq);
 	}
 
@@ -840,6 +911,22 @@ SOUND_Play(
 	cursnd->end = (const uint8_t *)snddata + wavespec.size;
 	cursnd->spec = wavespec;
 	cursnd->ResampleMix = mixer;
+#if defined(__POCKET__)
+	if (cursnd->cached) PAL_PocketSfxRelease(cursnd->cached);
+	cursnd->cached = cached;
+	if (cached)
+	{
+		cursnd->base = cached;
+		cursnd->current = cached->pcm;
+		cursnd->end = cached->pcm + (size_t)cached->frames * cached->channels;
+		cursnd->spec.channels = cached->channels;
+		cursnd->spec.freq = devspec->freq;
+		cursnd->spec.format = AUDIO_S16;
+		cursnd->spec.align = 2 * cached->channels;
+		cursnd->spec.size = cached->frames * 2 * cached->channels;
+		cursnd->ResampleMix = SOUND_Mix_Cached48k;
+	}
+#endif
 	player->cursounds++;
 
 	AUDIO_Unlock();
@@ -874,6 +961,10 @@ SOUND_Shutdown(
 		{
 			if (cursnd->resampler[0]) resampler_delete(cursnd->resampler[0]);
 			if (cursnd->resampler[1]) resampler_delete(cursnd->resampler[1]);
+#if defined(__POCKET__)
+			if (cursnd->cached) { PAL_PocketSfxRelease(cursnd->cached); cursnd->cached = NULL; }
+			else
+#endif
 			if (cursnd->base) free((void *)cursnd->base);
 		} while ((cursnd = cursnd->next) != NULL);
 		cursnd = player->soundlist.next;
@@ -924,6 +1015,10 @@ SOUND_FillBuffer(
 				cursnd->spec.size = (const uint8_t *)cursnd->end - (const uint8_t *)cursnd->current;
 				if (cursnd->spec.size < cursnd->spec.align)
 				{
+#if defined(__POCKET__)
+					if (cursnd->cached) { PAL_PocketSfxRelease(cursnd->cached); cursnd->cached = NULL; }
+					else
+#endif
 					free((void *)cursnd->base);
 					cursnd->base = cursnd->current = cursnd->end = NULL;
 					player->cursounds--;

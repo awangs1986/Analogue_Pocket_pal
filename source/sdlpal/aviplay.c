@@ -53,6 +53,9 @@
  */
 
 #include "util.h"
+#if defined(__POCKET__)
+#include "pocket_avi_audio.h"
+#endif
 #include "audio.h"
 #include "aviplay.h"
 #include "input.h"
@@ -103,6 +106,9 @@ typedef struct AVIPlayState
 	uint32_t       dwAudioWritePos;
 
 	BOOL          fInterleaved;
+#if defined(__POCKET__)
+	int           iSrcRate, iSrcChannels, iSrcBits;  /* PCM as stored in the file */
+#endif
 } AVIPlayState;
 
 static AVIPlayState gAVIPlayState;
@@ -276,6 +282,11 @@ PAL_ReadAVIInfo(
 			avi->surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
 				bih.biWidth, bih.biHeight, bih.biBitCount,
 				0x7C00, 0x03E0, 0x001F, 0x0000);
+#if defined(__POCKET__)
+			avi->iSrcRate = (int)wfe.format.nSamplesPerSec;
+			avi->iSrcChannels = wfe.format.nChannels;
+			avi->iSrcBits = wfe.format.wBitsPerSample;
+#endif
 			//
 			// Build SDL audio conversion info
 			//
@@ -474,6 +485,12 @@ PAL_AVIFeedAudio(
     uint32_t        size
 )
 {
+#if defined(__POCKET__)
+    /* The SDK's SDL_ConvertAudio is a no-op; pocket/audio.c resamples. */
+    (void)avi;
+    PAL_PocketAVIAudioFeed(buffer, size);
+    return;
+#endif
     //
     // Convert audio in-place at the original buffer
     // This makes filling process much more simpler
@@ -683,6 +700,10 @@ PAL_PlayAVI(
 #else
 	VIDEO_ChangeDepth(avi->surface->format->BitsPerPixel);
 #endif
+#if defined(__POCKET__)
+	AUDIO_PlayMusic(0, FALSE, 0);
+	PAL_PocketAVIAudioBegin(avi->iSrcRate, avi->iSrcChannels, avi->iSrcBits);
+#endif
 
 	BOOL       fEndPlay = FALSE;
 	RIFFChunk *buf = (RIFFChunk *)avi->pChunkBuffer;
@@ -771,6 +792,9 @@ PAL_PlayAVI(
 	SDL_mutexP(avi->selfMutex);
 	avi->fp = NULL;
 	SDL_mutexV(avi->selfMutex);
+#if defined(__POCKET__)
+	PAL_PocketAVIAudioEnd();
+#endif
 
     if (fEndPlay)
     {

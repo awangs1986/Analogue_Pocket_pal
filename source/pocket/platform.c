@@ -50,7 +50,9 @@ int UTIL_Platform_Init(int argc, char *argv[])
     (void)argc; (void)argv;
     gConfig.fLaunchSetting = FALSE;
     gConfig.fEnableGLSL = FALSE;
-    gConfig.fEnableAviPlay = FALSE; /* Candidate is native indexed DOS/RNG. */
+    /* PAL98 (Win95) data carries 1-6.avi; DOS data has none, so PAL_PlayAVI
+     * fails to open the file and the original RNG/sprite path runs. */
+    gConfig.fEnableAviPlay = TRUE;
     gConfig.eMusicType = MUSIC_OGG;
     gConfig.eCDType = CD_OGG;
     gConfig.iSampleRate = 48000;
