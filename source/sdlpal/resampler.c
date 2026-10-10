@@ -56,6 +56,14 @@ static int fEqual(const float b, const float a)
     return fabs(a - b) < 1.0e-6;
 }
 
+/* rv32imafc has no double FPU: build the tables in float (was ~3.9 s). */
+#if defined(__POCKET__)
+#define sin(v) sinf((float)(v))
+#define cos(v) cosf((float)(v))
+typedef float resampler_init_real;
+#else
+typedef double resampler_init_real;
+#endif
 static float sinc(float x)
 {
     return fEqual(x, 0.0f) ? 1.0f : (float)(sin(x * M_PI) / (x * M_PI));
@@ -550,7 +558,7 @@ static resampler_run resampler_run_sinc = resampler_run_sinc_c;
 void resampler_init(void)
 {
     unsigned i;
-    double dx = (float)(SINC_WIDTH) / SINC_SAMPLES, x = 0.0;
+    resampler_init_real dx = (float)(SINC_WIDTH) / SINC_SAMPLES, x = 0.0;
     for (i = 0; i < SINC_SAMPLES + 1; ++i, x += dx)
     {
         float y = x / SINC_WIDTH;

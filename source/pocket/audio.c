@@ -31,29 +31,54 @@ static uint32_t last_pump_us, last_report_us;
 static int have_pump_time, hardware_started, was_starved, error_reported;
 static pal_pocket_audio_diagnostics diagnostics;
 
-/* AVI soundtrack (PAL98 1-6.avi): the demuxer pushes PCM chunks as it reads
- * them; they are converted to 48 kHz stereo immediately (fixed-point FIR)
- * and queued here. The drain loop mixes them like music, so audio advances
- * with the hardware sample clock and aviplay.c paces video by SDL_GetTicks
- * from the same start point. */
-enum { AVI_RING_FRAMES = 4 * 48000, AVI_CHUNK_FRAMES = 4096 };
-static int16_t *avi_ring;
-static uint32_t avi_read, avi_write, avi_dropped;
-static int avi_active, avi_bits, avi_channels, avi_rate;
-static ppr_stream avi_stream;
+/* AVI soundtrack (PAL98 1-6.avi). The movies store audio in big blocks
+ * (1.avi: 1 s mono per chunk, 3.avi: 1 s stereo), so the demuxer only copies
+ * raw PCM into a ring here (cheap, no stall in the video loop); conversion to
+ * 48 kHz stereo is done lazily, a few hundred frames at a time, inside the
+ * drain that feeds the hardware queue, with 16.16 linear interpolation.
+ * While a movie plays the hardware queue target is raised so SD reads that
+ * block for 40-100 ms no longer starve the output (that starvation was the
+ * crackle and the ever-growing queue). */
+enum { AVI_RAW_SECONDS = 4, AVI_HW_TARGET = 16384, AVI_MAX_LEAD_S = 3 };
+static uint8_t *avi_raw;
+static uint32_t avi_raw_cap;          /* frames */
+static uint32_t avi_raw_r, avi_raw_w; /* frame counters */
+static uint32_t avi_phase, avi_step;  /* 16.16 position between raw_r and raw_r+1 */
+static uint32_t avi_dropped, avi_underruns;
+static int avi_active, avi_bits, avi_channels, avi_rate, avi_frame_bytes;
 
-static uint32_t avi_queued(void) { return avi_write - avi_read; }
+static uint32_t avi_raw_queued(void) { return avi_raw_w - avi_raw_r; }
+static uint32_t avi_queued(void)
+{
+    return avi_rate > 0 ? (uint32_t)((uint64_t)avi_raw_queued() * PPA_OUTPUT_RATE / (uint32_t)avi_rate) : 0;
+}
+static inline int avi_sample(uint32_t frame, int ch)
+{
+    const uint8_t *p = avi_raw + (size_t)(frame % avi_raw_cap) * (size_t)avi_frame_bytes;
+    if (ch >= avi_channels) ch = avi_channels - 1;
+    if (avi_bits == 8) return ((int)p[ch] - 128) << 8;
+    return (int16_t)(p[2 * ch] | (p[2 * ch + 1] << 8));
+}
 
 int PAL_PocketAVIAudioBegin(int rate, int channels, int bits)
 {
-    if (!gAudioDevice.fOpened || rate <= 0 || (channels != 1 && channels != 2) ||
+    uint32_t cap, fb;
+    if (!gAudioDevice.fOpened || rate <= 0 || rate > 96000 || (channels != 1 && channels != 2) ||
         (bits != 8 && bits != 16)) return -1;
-    if (!avi_ring) avi_ring = (int16_t *)malloc(AVI_RING_FRAMES * 2 * sizeof(int16_t));
-    if (!avi_ring) return -1;
+    fb = (uint32_t)(channels * bits / 8);
+    cap = (uint32_t)rate * AVI_RAW_SECONDS;
     AUDIO_Lock();
-    ppr_stream_init(&avi_stream, channels, rate, PPA_OUTPUT_RATE);
-    avi_read = avi_write = avi_dropped = 0;
-    avi_bits = bits; avi_channels = channels; avi_rate = rate;
+    if (!avi_raw || cap * fb > avi_raw_cap * (uint32_t)(avi_frame_bytes ? avi_frame_bytes : 1)) {
+        free(avi_raw);
+        avi_raw = (uint8_t *)malloc((size_t)cap * fb);
+    }
+    if (!avi_raw) { avi_active = 0; AUDIO_Unlock(); return -1; }
+    avi_raw_cap = cap;
+    avi_raw_r = avi_raw_w = 0;
+    avi_phase = 0;
+    avi_step = (uint32_t)(((uint64_t)rate << 16) / PPA_OUTPUT_RATE);
+    avi_dropped = avi_underruns = 0;
+    avi_bits = bits; avi_channels = channels; avi_rate = rate; avi_frame_bytes = (int)fb;
     avi_active = 1;
     AUDIO_Unlock();
     return 0;
@@ -61,60 +86,60 @@ int PAL_PocketAVIAudioBegin(int rate, int channels, int bits)
 
 void PAL_PocketAVIAudioFeed(const void *data, uint32_t bytes)
 {
-    int16_t in[1024 * 2], out[AVI_CHUNK_FRAMES * 2];
     const uint8_t *src = (const uint8_t *)data;
-    uint32_t frame_bytes, frames;
-    if (!avi_active || !data) return;
-    frame_bytes = (uint32_t)(avi_channels * avi_bits / 8);
-    frames = bytes / frame_bytes;
-    while (frames) {
-        uint32_t n = frames > 1024 ? 1024 : frames, i, k, produced;
-        for (i = 0; i < n * (uint32_t)avi_channels; ++i)
-            in[i] = avi_bits == 8 ? (int16_t)(((int)src[i] - 128) << 8)
-                                  : (int16_t)(src[2 * i] | (src[2 * i + 1] << 8));
-        src += n * frame_bytes;
-        frames -= n;
-#if defined(PAL_POCKET_AVI_FAST)
-        /* Linear interpolation (16.16 phase) instead of the 16-tap FIR: the
-         * 22 kHz 8-bit movie track gains nothing audible from the FIR and
-         * this is ~10x cheaper. Phase/last sample carry across chunks. */
-        {
-            static int16_t last[2];
-            static uint32_t phase;
-            const uint32_t step = (uint32_t)(((uint64_t)avi_rate << 16) / PPA_OUTPUT_RATE);
-            uint32_t pos;
-            int c, ch = avi_channels;
-            produced = 0;
-            for (;;) {
-                pos = phase >> 16;
-                if (pos >= n || produced >= AVI_CHUNK_FRAMES) break;
-                {
-                    int32_t f = (int32_t)(phase & 0xffff);
-                    for (c = 0; c < ch; ++c) {
-                        int32_t a = pos ? in[(pos - 1) * ch + c] : last[c];
-                        int32_t b = in[pos * ch + c];
-                        out[produced * ch + c] = (int16_t)(a + (((b - a) * f) >> 16));
-                    }
-                }
-                ++produced;
-                phase += step;
-            }
-            phase -= (uint32_t)n << 16;
-            for (c = 0; c < ch; ++c) last[c] = in[(n - 1) * ch + c];
-        }
-#else
-        produced = (uint32_t)ppr_stream_push(&avi_stream, in, n, out, AVI_CHUNK_FRAMES);
-#endif
-        AUDIO_Lock();
-        for (k = 0; k < produced; ++k) {
-            uint32_t slot;
-            if (avi_queued() >= AVI_RING_FRAMES) { ++avi_read; ++avi_dropped; }
-            slot = (avi_write++ % AVI_RING_FRAMES) * 2;
-            avi_ring[slot] = out[k * avi_channels];
-            avi_ring[slot + 1] = out[k * avi_channels + (avi_channels - 1)];
-        }
-        AUDIO_Unlock();
-        PAL_PocketAudioDrain();
+    uint32_t frames, first, max_lead;
+    if (!avi_active || !data || !avi_frame_bytes) return;
+    frames = bytes / (uint32_t)avi_frame_bytes;
+    if (!frames) return;
+    AUDIO_Lock();
+    if (frames > avi_raw_cap) {               /* keep only the newest part */
+        src += (size_t)(frames - avi_raw_cap) * avi_frame_bytes;
+        avi_dropped += frames - avi_raw_cap;
+        frames = avi_raw_cap;
+    }
+    if (avi_raw_queued() + frames > avi_raw_cap) {   /* never overwrite unread */
+        uint32_t drop = avi_raw_queued() + frames - avi_raw_cap;
+        avi_raw_r += drop; avi_phase = 0; avi_dropped += drop;
+    }
+    first = avi_raw_w % avi_raw_cap;
+    if (first + frames <= avi_raw_cap)
+        memcpy(avi_raw + (size_t)first * avi_frame_bytes, src, (size_t)frames * avi_frame_bytes);
+    else {
+        uint32_t n1 = avi_raw_cap - first;
+        memcpy(avi_raw + (size_t)first * avi_frame_bytes, src, (size_t)n1 * avi_frame_bytes);
+        memcpy(avi_raw, src + (size_t)n1 * avi_frame_bytes, (size_t)(frames - n1) * avi_frame_bytes);
+    }
+    avi_raw_w += frames;
+    /* A/V safety: never let audio run more than AVI_MAX_LEAD_S ahead. */
+    max_lead = (uint32_t)avi_rate * AVI_MAX_LEAD_S;
+    if (avi_raw_queued() > max_lead) {
+        uint32_t drop = avi_raw_queued() - max_lead;
+        avi_raw_r += drop; avi_phase = 0; avi_dropped += drop;
+    }
+    AUDIO_Unlock();
+    PAL_PocketAudioDrain();
+}
+
+/* Mix up to `frames` converted AVI frames into dst (stereo). */
+static void avi_mix(int16_t *dst, int frames)
+{
+    int i;
+    for (i = 0; i < frames; ++i) {
+        int32_t f, l, r, a, b;
+        if (avi_raw_queued() < 2) { ++avi_underruns; break; }
+        f = (int32_t)avi_phase;
+        a = avi_sample(avi_raw_r, 0); b = avi_sample(avi_raw_r + 1, 0);
+        l = a + (((b - a) * f) >> 16);
+        if (avi_channels == 2) {
+            a = avi_sample(avi_raw_r, 1); b = avi_sample(avi_raw_r + 1, 1);
+            r = a + (((b - a) * f) >> 16);
+        } else r = l;
+        l += dst[i * 2]; r += dst[i * 2 + 1];
+        dst[i * 2] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
+        dst[i * 2 + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
+        avi_phase += avi_step;
+        avi_raw_r += avi_phase >> 16;
+        avi_phase &= 0xffffu;
     }
 }
 
@@ -122,10 +147,11 @@ void PAL_PocketAVIAudioEnd(void)
 {
     AUDIO_Lock();
     if (avi_active)
-        fprintf(stderr, "Pocket AVI audio: end with %lu ms unplayed (audio lead), %lu frames dropped\n",
-                (unsigned long)(avi_queued() / 48u), (unsigned long)avi_dropped);
+        PAL_PocketLog("AVI audio end: %lu ms unplayed, %lu raw frames dropped, %lu underruns",
+                (unsigned long)(avi_queued() / 48u), (unsigned long)avi_dropped,
+                (unsigned long)avi_underruns);
     avi_active = 0;
-    avi_read = avi_write = 0;
+    avi_raw_r = avi_raw_w = 0;
     AUDIO_Unlock();
 }
 
@@ -219,10 +245,12 @@ void PAL_PocketAudioDrain(void)
     unsigned chunks;
     if (!gAudioDevice.fOpened || lock_depth || draining) return;
     draining = 1;
-    for (chunks = 0; chunks < DRAIN_CHUNKS; ++chunks) {
+    unsigned max_chunks = avi_active ? (unsigned)(AVI_HW_TARGET / MIX_FRAMES) : DRAIN_CHUNKS;
+    int want = avi_active ? AVI_HW_TARGET : QUEUE_FRAMES;
+    for (chunks = 0; chunks < max_chunks; ++chunks) {
         int free_frames = of_audio_free();
         int queued = capacity - 1 - free_frames;
-        int target = QUEUE_FRAMES < capacity - 1 ? QUEUE_FRAMES : capacity - 1;
+        int target = want < capacity - 1 ? want : capacity - 1;
         int room, written;
         if (queued < 0) queued = 0;
         if (hardware_started && queued <= 4) {
@@ -247,16 +275,7 @@ void PAL_PocketAudioDrain(void)
             if (gAudioDevice.fSoundEnabled && gAudioDevice.pSoundPlayer)
                 gAudioDevice.pSoundPlayer->FillBuffer(gAudioDevice.pSoundPlayer,
                     (LPBYTE)sfx_buffer, frames * 2 * (int)sizeof(int16_t));
-            if (avi_active) {
-                /* AVI audio takes the music bus (and music volume). */
-                for (i = 0; i < frames && avi_queued(); ++i, ++avi_read) {
-                    uint32_t slot = (avi_read % AVI_RING_FRAMES) * 2;
-                    int l = mix_buffer[i * 2] + avi_ring[slot];
-                    int r = mix_buffer[i * 2 + 1] + avi_ring[slot + 1];
-                    mix_buffer[i * 2] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
-                    mix_buffer[i * 2 + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
-                }
-            }
+            if (avi_active) avi_mix(mix_buffer, frames); /* AVI audio takes the music bus */
             for (i = 0; i < frames; ++i) {
                 int ch, volume = gAudioDevice.iMusicVolume;
                 if (fade_position < fade_frames && (size_t)i < have) {

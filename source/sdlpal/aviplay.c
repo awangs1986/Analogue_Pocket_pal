@@ -476,6 +476,24 @@ PAL_ReadDataChunk(
 			//
 			// Ignore unrecognized chunks
 			//
+#if defined(__POCKET__)
+			/* musl's fseek drops the stdio buffer, so seeking over every JUNK
+			 * pad re-read a whole 64 KiB block from SD per frame. Skip small
+			 * gaps by consuming them from the buffer instead. */
+			if (hdr.length <= 64 * 1024)
+			{
+				static char skipbuf[4096];
+				uint32_t left = hdr.length;
+				while (left)
+				{
+					uint32_t n = left > sizeof(skipbuf) ? sizeof(skipbuf) : left;
+					if (fread(skipbuf, 1, n, fp) != n) return NULL;
+					left -= n;
+				}
+				pos += hdr.length;
+			}
+			else
+#endif
 			fseek(fp, pos += hdr.length, SEEK_SET);
 		}
 	}
