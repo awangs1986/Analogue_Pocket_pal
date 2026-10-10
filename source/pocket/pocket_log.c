@@ -34,11 +34,13 @@ static const uint32_t term_colors[16] = {
     0x555555, 0x5555ff, 0x55ff55, 0x55ffff, 0xff5555, 0xff55ff, 0xffff55, 0xffffff
 };
 void PAL_PocketVideoRestorePalette(void);
+#ifdef PAL_POCKET_LOG_SCREEN
 static void show_terminal(void)
 {
     of_video_palette_bulk(term_colors, 16);
     of_video_set_display_mode(OF_DISPLAY_TERMINAL);
 }
+#endif
 extern FILE *__real_fopen(const char *, const char *);
 
 static void commit(void)
@@ -63,11 +65,13 @@ void PAL_PocketLogRaw(const char *text)
     n = strlen(line);
     if (n && line[n - 1] != '\n' && n + 1 < sizeof(line)) { line[n++] = '\n'; line[n] = 0; }
     snprintf(g_last, sizeof(g_last), "%s", line);
+#ifdef PAL_POCKET_LOG_SCREEN
     if (!g_boot_done) {
         show_terminal();
         fputs(line, stdout);
         fflush(stdout);
     }
+#endif
     if (!g_full) {
         if (g_len + n + 32 > LOG_CAP) {
             static const char tail[] = "[log full]\n";
@@ -108,8 +112,10 @@ void PAL_PocketLogBootDone(void)
     if (g_boot_done) return;
     PAL_PocketLogRaw("boot done: LCD back to game framebuffer");
     g_boot_done = 1;
+#ifdef PAL_POCKET_LOG_SCREEN
     of_video_set_display_mode(OF_DISPLAY_FRAMEBUFFER);
     PAL_PocketVideoRestorePalette();
+#endif
 }
 
 const char *PAL_PocketLogLast(void) { return g_last; }

@@ -21,6 +21,12 @@ int PAL_PocketFilesInit(void);
 int PAL_PocketFilesInitPath(const char *archive_path); /* also used by host tests */
 void PAL_PocketFilesShutdown(void);
 FILE *PAL_PocketOpenAsset(const char *name);
+/* First archive entry whose name ends with suffix (NULL if none). */
+const char *PAL_PocketFindAssetSuffix(const char *suffix);
+int PAL_PocketHasAsset(const char *name);
+/* PAL98: recover MessageFileName when the settings slot shadows the pak cfg. */
+void PAL_PocketResolveMessageFile(void);
+char *PAL_PocketCfgMessageFile(FILE *fp);
 FILE *__wrap_fopen(const char *name, const char *mode);
 int __wrap_access(const char *name, int mode);
 

@@ -7,6 +7,9 @@
 #endif
 #include "files.h"
 #ifndef PAL_POCKET_FILES_HOST
+#include "main.h"
+#endif
+#ifndef PAL_POCKET_FILES_HOST
 #include "pocket_log.h"
 #define FLOG(...) PAL_PocketLog(__VA_ARGS__)
 #else
@@ -16,6 +19,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #ifndef PAL_POCKET_FILES_HOST
 #include "of_caps.h"
@@ -473,3 +477,59 @@ int __wrap_access(const char *name, int mode)
     if (!file) return -1;
     return fclose(file);
 }
+
+const char *PAL_PocketFindAssetSuffix(const char *suffix)
+{
+    uint32_t i;
+    size_t ls = suffix ? strlen(suffix) : 0;
+    for (i = 0; i < entry_count; ++i) {
+        size_t ln = strlen(entries[i].name);
+        if (ln >= ls && !strcmp(entries[i].name + ln - ls, suffix)) return entries[i].name;
+    }
+    return NULL;
+}
+
+int PAL_PocketHasAsset(const char *name)
+{
+    char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
+    return !normalize(name, canonical) && archive && find_asset(canonical) != NULL;
+}
+
+/* Parse "MessageFileName=" from one cfg stream; tolerant of BOM, CRLF,
+ * spaces and key case. Returns malloc'd value or NULL. */
+char *PAL_PocketCfgMessageFile(FILE *fp)
+{
+    char line[512];
+    while (fp && fgets(line, sizeof(line), fp)) {
+        char *p = line, *v, *e;
+        if ((unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBB && (unsigned char)p[2] == 0xBF) p += 3;
+        while (*p == ' ' || *p == '\t') ++p;
+        if (strncasecmp(p, "MessageFileName", 15)) continue;
+        v = p + 15;
+        while (*v == ' ' || *v == '\t') ++v;
+        if (*v++ != '=') continue;
+        while (*v == ' ' || *v == '\t') ++v;
+        e = v + strlen(v);
+        while (e > v && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ' || e[-1] == '\t')) *--e = 0;
+        if (*v) return strdup(v);
+    }
+    return NULL;
+}
+
+#ifndef PAL_POCKET_FILES_HOST
+void PAL_PocketResolveMessageFile(void)
+{
+    char *name = NULL;
+    const char *found;
+    FILE *fp;
+    if (gConfig.pszMsgFile && gConfig.pszMsgFile[0]) return;
+    if (PAL_PocketHasAsset("m.msg") && PAL_PocketHasAsset("word.dat")) return; /* DOS data */
+    fp = PAL_PocketOpenAsset("sdlpal.cfg");
+    if (fp) { name = PAL_PocketCfgMessageFile(fp); fclose(fp); }
+    if (name && !PAL_PocketHasAsset(name)) { FLOG("msgfile: pak cfg names missing %s", name); free(name); name = NULL; }
+    if (!name && (found = PAL_PocketFindAssetSuffix("_cht.msg")) != NULL) name = strdup(found);
+    if (!name && (found = PAL_PocketFindAssetSuffix(".msg")) != NULL) name = strdup(found);
+    FLOG("msgfile: settings slot had none; using %s", name ? name : "(none found)");
+    if (name) { free(gConfig.pszMsgFile); gConfig.pszMsgFile = name; }
+}
+#endif

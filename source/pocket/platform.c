@@ -71,6 +71,9 @@ int UTIL_Platform_Init(int argc, char *argv[])
     gConfig.iAudioChannels = 2;
     gConfig.iLogLevel = LOGLEVEL_INFO;
     UTIL_LogAddOutputCallback(pocket_log, LOGLEVEL_INFO);
+    /* PAL98: the settings slot (PAL.cfg) shadows the pak's sdlpal.cfg, so
+     * MessageFileName may be lost; fall back to the pak cfg / *.msg entry. */
+    PAL_PocketResolveMessageFile();
     return 0;
 }
 void UTIL_Platform_Quit(void)
@@ -119,14 +122,34 @@ int SDL_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid)
     of_video_get_mode(&previous);
     if (restore) memcpy(saved_colors, VIDEO_GetPalette(), sizeof(saved_colors));
     /* The terminal shares the game CLUT and may change video geometry. */
-    of_video_set_display_mode(OF_DISPLAY_TERMINAL);
-    of_video_palette_bulk(terminal_colors, 16);
+    {
+        /* Make the console readable whatever the game palette was (a fatal
+         * error after a fade left every entry black): fill all 256 entries
+         * with the 16 console colours, then show the terminal. */
+        uint32_t full[256];
+        int k;
+        for (k = 0; k < 256; ++k) full[k] = terminal_colors[k & 15];
+        of_video_set_display_mode(OF_DISPLAY_TERMINAL);
+        of_video_palette_bulk(full, 256);
+    }
     /* This port disables the launch-settings dialog; all calls are OK-only. */
     printf("\033[0m\033[2J\033[H%s\n\n%s\n\nLast log: %s\nLog: Saves/<platform>/common/PAL_debug.log (quit core to save)\nPress A to continue.\n",
            data->title ? data->title : "PAL", data->message ? data->message : "", PAL_PocketLogLast());
     of_input_poll_p0();
     while (of_btn(OF_BTN_A)) { PAL_PocketAudioPump(); __real_SDL_Delay(1); of_input_poll_p0(); }
-    while (!(of_btn(OF_BTN_A))) { PAL_PocketAudioPump(); __real_SDL_Delay(1); of_input_poll_p0(); }
+    {
+        unsigned ticks = 0;
+        while (!(of_btn(OF_BTN_A))) {
+            PAL_PocketAudioPump(); __real_SDL_Delay(1); of_input_poll_p0();
+            if (++ticks % 1000u == 0) {  /* re-assert in case anything switched it back */
+                uint32_t full[256];
+                int k;
+                for (k = 0; k < 256; ++k) full[k] = terminal_colors[k & 15];
+                of_video_set_display_mode(OF_DISPLAY_TERMINAL);
+                of_video_palette_bulk(full, 256);
+            }
+        }
+    }
     if (buttonid) *buttonid = data->numbuttons ? data->buttons[0].buttonid : 0;
     if (restore) {
         if (of_video_set_mode(&previous) != 0) return -1;
