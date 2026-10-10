@@ -55,6 +55,11 @@
 #include "util.h"
 #if defined(__POCKET__)
 #include "pocket_avi_audio.h"
+#include "pocket_log.h"
+/* Per-phase AVI timing (microseconds), logged every 30 video frames. */
+typedef struct { uint32_t n, sum, max; } PAL_AviStat;
+static void avi_stat_add(PAL_AviStat *s, uint32_t us) { s->n++; s->sum += us; if (us > s->max) s->max = us; }
+#define AVI_AVG(s) ((s).n ? (s).sum / (s).n : 0)
 #endif
 #include "audio.h"
 #include "aviplay.h"
@@ -684,6 +689,11 @@ PAL_PlayAVI(
 		UTIL_LogOutput(LOGLEVEL_WARNING, "Cannot open AVI file: %s!\n", lpszPath);
 		return FALSE;
 	}
+#if defined(__POCKET__) && defined(PAL_POCKET_AVI_FAST)
+	/* One SD bridge transaction per 64 KiB instead of per 1 KiB stdio refill. */
+	static char avi_iobuf[64 * 1024] __attribute__((aligned(64)));
+	setvbuf(fp, avi_iobuf, _IOFBF, sizeof(avi_iobuf));
+#endif
 
 	AVIPlayState *avi = PAL_ReadAVIInfo(fp, &gAVIPlayState);
 	if (avi == NULL)
@@ -718,6 +728,13 @@ PAL_PlayAVI(
 	const uint32_t dwAviMaxFrames = 15 * 60;                 /* ~60s @ 15fps */
 #endif
 
+#if defined(__POCKET__)
+	PAL_AviStat st_vread = {0}, st_aread = {0}, st_dec = {0}, st_wait = {0}, st_draw = {0}, st_aud = {0};
+	uint32_t avi_late = 0, avi_skipped = 0, avi_skip_run = 0, avi_bytes = 0, avi_t0 = PAL_PocketTimeUs();
+	PAL_PocketLog("AVI %s: %ux%u %u us/frame, audio %d Hz %dch %dbit, buf %u", lpszPath,
+		(unsigned)avi->surface->w, (unsigned)avi->surface->h, (unsigned)avi->dwMicroSecPerFrame,
+		avi->iSrcRate, avi->iSrcChannels, avi->iSrcBits, (unsigned)len);
+#endif
     while (!fEndPlay)
     {
 #if defined(__MISTER__)
@@ -731,9 +748,17 @@ PAL_PlayAVI(
 			break;
 		}
 #endif
+#if defined(__POCKET__)
+		uint32_t t_rd = PAL_PocketTimeUs();
+#endif
 		RIFFChunk *chunk = PAL_ReadDataChunk(fp, avi->lVideoEndPos, buf, len, avi->cvt.len_mult);
 
 		if (chunk == NULL) break;
+#if defined(__POCKET__)
+		t_rd = PAL_PocketTimeUs() - t_rd;
+		avi_bytes += chunk->header.length + 8;
+		avi_stat_add(chunk->header.type == AVI_01wb ? &st_aread : &st_vread, t_rd);
+#endif
 
         switch (chunk->header.type)
         {
@@ -745,6 +770,45 @@ PAL_PlayAVI(
 			dwNextFrameTime = dwFrameStartTime + ((dwFrameNumber * avi->dwMicroSecPerFrame) / 1000);
 			dwFrameNumber++;
 
+#if defined(__POCKET__)
+		{
+			uint32_t t = PAL_PocketTimeUs();
+			PAL_RenderAVIFrameToSurface(avi->surface, chunk);
+			avi_stat_add(&st_dec, PAL_PocketTimeUs() - t);
+			dwCurrentTime = SDL_GetTicks();
+			int late = dwCurrentTime > dwNextFrameTime + avi->dwMicroSecPerFrame / 1000;
+			if (late) avi_late++;
+			t = PAL_PocketTimeUs();
+			UTIL_Delay(dwCurrentTime >= dwNextFrameTime ? 0 : dwNextFrameTime - dwCurrentTime);
+			avi_stat_add(&st_wait, PAL_PocketTimeUs() - t);
+#if defined(PAL_POCKET_AVI_FAST)
+			/* Behind by more than a frame: keep decoding (Video1 is delta
+			 * coded) but skip the blit/flush/flip so playback catches up with
+			 * the audio clock instead of drifting into slow motion. Never skip
+			 * more than 3 in a row so motion stays visible. */
+			if (late && avi_skip_run < 3) { avi_skip_run++; avi_skipped++; }
+			else
+#endif
+			{
+				avi_skip_run = 0;
+				t = PAL_PocketTimeUs();
+				VIDEO_DrawSurfaceToScreen(avi->surface);
+				avi_stat_add(&st_draw, PAL_PocketTimeUs() - t);
+			}
+			if (dwFrameNumber % 30 == 0)
+			{
+				PAL_PocketLog("AVI f%u: vread %u/%u aread %u/%u dec %u/%u draw %u/%u wait %u/%u aud %u/%u us(avg/max) late %u skip %u %u KB/s audq %u",
+					(unsigned)dwFrameNumber, AVI_AVG(st_vread), st_vread.max, AVI_AVG(st_aread), st_aread.max,
+					AVI_AVG(st_dec), st_dec.max, AVI_AVG(st_draw), st_draw.max, AVI_AVG(st_wait), st_wait.max,
+					AVI_AVG(st_aud), st_aud.max, avi_late, avi_skipped,
+					(unsigned)((uint64_t)avi_bytes * 1000u / ((PAL_PocketTimeUs() - avi_t0) / 1000u + 1u) / 1024u),
+					(unsigned)PAL_PocketAVIAudioQueued());
+				memset(&st_vread, 0, sizeof(st_vread)); memset(&st_aread, 0, sizeof(st_aread));
+				memset(&st_dec, 0, sizeof(st_dec)); memset(&st_draw, 0, sizeof(st_draw));
+				memset(&st_wait, 0, sizeof(st_wait)); memset(&st_aud, 0, sizeof(st_aud));
+			}
+		}
+#else
 			PAL_RenderAVIFrameToSurface(avi->surface, chunk);
 
             dwCurrentTime = SDL_GetTicks();
@@ -753,6 +817,7 @@ PAL_PlayAVI(
             UTIL_Delay(dwCurrentTime >= dwNextFrameTime ? 0 : dwNextFrameTime - dwCurrentTime);
 
             VIDEO_DrawSurfaceToScreen(avi->surface);
+#endif
 
             if (g_InputState.dwKeyPress & (kKeyMenu | kKeySearch))
             {
@@ -772,7 +837,15 @@ PAL_PlayAVI(
             //
             // Audio data, just convert it & feed into buffer
             //
+#if defined(__POCKET__)
+		{
+			uint32_t t = PAL_PocketTimeUs();
+			PAL_AVIFeedAudio(avi, chunk->data, chunk->header.length);
+			avi_stat_add(&st_aud, PAL_PocketTimeUs() - t);
+		}
+#else
             PAL_AVIFeedAudio(avi, chunk->data, chunk->header.length);
+#endif
 			//
 			// Only enable AVI audio when data are available
 			// We do not lock on the 'if' because only this function changes 'avi->fp'
@@ -793,6 +866,8 @@ PAL_PlayAVI(
 	avi->fp = NULL;
 	SDL_mutexV(avi->selfMutex);
 #if defined(__POCKET__)
+	PAL_PocketLog("AVI %s end: %u frames in %u ms (late %u, skipped %u)", lpszPath, (unsigned)dwFrameNumber,
+		(unsigned)((PAL_PocketTimeUs() - avi_t0) / 1000u), avi_late, avi_skipped);
 	PAL_PocketAVIAudioEnd();
 #endif
 

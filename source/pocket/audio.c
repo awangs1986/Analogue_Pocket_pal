@@ -39,7 +39,7 @@ static pal_pocket_audio_diagnostics diagnostics;
 enum { AVI_RING_FRAMES = 4 * 48000, AVI_CHUNK_FRAMES = 4096 };
 static int16_t *avi_ring;
 static uint32_t avi_read, avi_write, avi_dropped;
-static int avi_active, avi_bits, avi_channels;
+static int avi_active, avi_bits, avi_channels, avi_rate;
 static ppr_stream avi_stream;
 
 static uint32_t avi_queued(void) { return avi_write - avi_read; }
@@ -53,7 +53,7 @@ int PAL_PocketAVIAudioBegin(int rate, int channels, int bits)
     AUDIO_Lock();
     ppr_stream_init(&avi_stream, channels, rate, PPA_OUTPUT_RATE);
     avi_read = avi_write = avi_dropped = 0;
-    avi_bits = bits; avi_channels = channels;
+    avi_bits = bits; avi_channels = channels; avi_rate = rate;
     avi_active = 1;
     AUDIO_Unlock();
     return 0;
@@ -74,7 +74,37 @@ void PAL_PocketAVIAudioFeed(const void *data, uint32_t bytes)
                                   : (int16_t)(src[2 * i] | (src[2 * i + 1] << 8));
         src += n * frame_bytes;
         frames -= n;
+#if defined(PAL_POCKET_AVI_FAST)
+        /* Linear interpolation (16.16 phase) instead of the 16-tap FIR: the
+         * 22 kHz 8-bit movie track gains nothing audible from the FIR and
+         * this is ~10x cheaper. Phase/last sample carry across chunks. */
+        {
+            static int16_t last[2];
+            static uint32_t phase;
+            const uint32_t step = (uint32_t)(((uint64_t)avi_rate << 16) / PPA_OUTPUT_RATE);
+            uint32_t pos;
+            int c, ch = avi_channels;
+            produced = 0;
+            for (;;) {
+                pos = phase >> 16;
+                if (pos >= n || produced >= AVI_CHUNK_FRAMES) break;
+                {
+                    int32_t f = (int32_t)(phase & 0xffff);
+                    for (c = 0; c < ch; ++c) {
+                        int32_t a = pos ? in[(pos - 1) * ch + c] : last[c];
+                        int32_t b = in[pos * ch + c];
+                        out[produced * ch + c] = (int16_t)(a + (((b - a) * f) >> 16));
+                    }
+                }
+                ++produced;
+                phase += step;
+            }
+            phase -= (uint32_t)n << 16;
+            for (c = 0; c < ch; ++c) last[c] = in[(n - 1) * ch + c];
+        }
+#else
         produced = (uint32_t)ppr_stream_push(&avi_stream, in, n, out, AVI_CHUNK_FRAMES);
+#endif
         AUDIO_Lock();
         for (k = 0; k < produced; ++k) {
             uint32_t slot;
@@ -99,6 +129,7 @@ void PAL_PocketAVIAudioEnd(void)
     AUDIO_Unlock();
 }
 
+uint32_t PAL_PocketTimeUs(void) { return (uint32_t)of_time_us(); }
 uint32_t PAL_PocketAVIAudioQueued(void) { return avi_active ? avi_queued() : 0; }
 
 static int clamp_volume(int v) { return v < 0 ? 0 : v > 100 ? 100 : v; }
