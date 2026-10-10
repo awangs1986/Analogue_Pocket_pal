@@ -58,8 +58,22 @@ static int fEqual(const float b, const float a)
 
 /* rv32imafc has no double FPU: build the tables in float (was ~3.9 s). */
 #if defined(__POCKET__)
-#define sin(v) sinf((float)(v))
-#define cos(v) cosf((float)(v))
+/* Pure single-precision sine (musl sinf still uses double internally,
+ * which is software-emulated here). |error| < 1e-6 after reduction. */
+static float pocket_sin(float x)
+{
+    const float pi = 3.14159265f;
+    float k = x / pi, r, r2, v;
+    int ki = (int)(k >= 0 ? k + 0.5f : k - 0.5f);
+    r = x - (float)ki * pi;
+    r2 = r * r;
+    v = r * (1.0f + r2 * (-1.0f / 6 + r2 * (1.0f / 120 + r2 * (-1.0f / 5040 + r2 * (1.0f / 362880)))));
+    return (ki & 1) ? -v : v;
+}
+#define sin(v) pocket_sin((float)(v))
+#define cos(v) pocket_sin((float)(v) + 1.57079633f)
+#undef M_PI
+#define M_PI 3.14159265f
 typedef float resampler_init_real;
 #else
 typedef double resampler_init_real;

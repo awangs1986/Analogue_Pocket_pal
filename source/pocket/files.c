@@ -206,6 +206,123 @@ int PAL_PocketFilesInit(void)
     return PAL_PocketFilesInitPath("pal.pak");
 }
 
+#ifndef PAL_POCKET_FILES_HOST
+/* ---- Async double-buffered read-ahead for streamed assets (AVI) ----
+ * The SD bridge can run one DMA read while the CPU decodes/draws, so the
+ * next block is requested as soon as the current one starts being consumed.
+ * Blocks land in CRAM0 staging (zero-copy path). Only one async read may be
+ * in flight; every synchronous archive read waits for it first. */
+void PAL_PocketAudioDrain(void);
+enum { RA_BUFS = 2 };
+static uint8_t *ra_buf[RA_BUFS];
+static uint32_t ra_block;
+static int ra_ready_init, ra_ok;
+static volatile int ra_inflight = -1, ra_done = 1, ra_result;
+static void ra_callback(int token, int result) { (void)token; ra_result = result; ra_done = 1; }
+static void ra_wait_idle(void)
+{
+    if (ra_inflight < 0) return;
+    while (!ra_done) { PAL_PocketAudioDrain(); of_file_async_poll(); }
+    ra_inflight = -1;
+}
+static int ra_init(void)
+{
+    uint32_t maxr, stage;
+    int i;
+    if (ra_ready_init) return ra_ok;
+    ra_ready_init = 1;
+    maxr = of_file_async_max_read();
+    stage = of_file_dma_stage_size();
+    ra_block = 128u * 1024u;
+    if (maxr && ra_block > maxr) ra_block = maxr & ~511u;
+    if (stage && ra_block * RA_BUFS > stage) ra_block = (stage / RA_BUFS) & ~511u;
+    if (!maxr || ra_block < 16384u) { FLOG("readahead: unavailable (max %u stage %u)", (unsigned)maxr, (unsigned)stage); return ra_ok = 0; }
+    for (i = 0; i < RA_BUFS; ++i)
+        if (!(ra_buf[i] = (uint8_t *)of_file_dma_stage_alloc(ra_block, 64))) {
+            FLOG("readahead: stage alloc failed"); return ra_ok = 0;
+        }
+    FLOG("readahead: %u x %u KiB blocks (async max %u, stage %u)", RA_BUFS, (unsigned)(ra_block / 1024), (unsigned)maxr, (unsigned)stage);
+    return ra_ok = 1;
+}
+typedef struct {
+    const asset_entry *entry;
+    uint32_t position;
+    uint32_t off[RA_BUFS], len[RA_BUFS];
+    int valid[RA_BUFS];
+    int active;
+} ra_stream;
+static ra_stream *ra_owner;
+static int ra_issue(ra_stream *s, int b, uint32_t pos)
+{
+    uint32_t n = s->entry->size - pos;
+    if (pos >= s->entry->size) return -1;
+    if (n > ra_block) n = ra_block;
+    ra_wait_idle();
+    s->valid[b] = 0; s->off[b] = pos; s->len[b] = n;
+    ra_done = 0; ra_result = 0;
+    if (of_file_read_async((int)PAL_POCKET_ASSET_SLOT, s->entry->offset + pos, ra_buf[b], n, ra_callback) < 0) {
+        ra_done = 1; return -1;
+    }
+    ra_inflight = b;
+    return 0;
+}
+/* Make buffer b hold pos (waiting for an in-flight read if it covers it). */
+static int ra_find(ra_stream *s, uint32_t pos)
+{
+    int b;
+    if (ra_inflight >= 0 && ra_done) {
+        if (ra_result >= 0) s->valid[ra_inflight] = 1;
+        ra_inflight = -1;
+    }
+    for (b = 0; b < RA_BUFS; ++b)
+        if (s->valid[b] && pos >= s->off[b] && pos < s->off[b] + s->len[b]) return b;
+    if (ra_inflight >= 0 && pos >= s->off[ra_inflight] && pos < s->off[ra_inflight] + s->len[ra_inflight]) {
+        b = ra_inflight;
+        ra_wait_idle();
+        if (ra_result < 0) return -1;
+        s->valid[b] = 1;
+        return b;
+    }
+    /* miss (start or seek): load synchronously into buffer 0 */
+    if (ra_issue(s, 0, pos) < 0) return -1;
+    ra_wait_idle();
+    if (ra_result < 0) return -1;
+    s->valid[0] = 1;
+    return 0;
+}
+static ssize_t ra_read(void *cookie, char *dst, size_t wanted)
+{
+    ra_stream *s = cookie;
+    size_t done = 0;
+    if (ra_owner != s) { errno = EIO; return -1; }
+    while (done < wanted && s->position < s->entry->size) {
+        int b = ra_find(s, s->position), other;
+        uint32_t avail, n;
+        if (b < 0) { errno = EIO; return done ? (ssize_t)done : -1; }
+        /* prefetch the block after this one into the other buffer */
+        other = b ^ 1;
+        if (ra_inflight < 0) {
+            uint32_t next = s->off[b] + s->len[b];
+            if (next < s->entry->size && !(s->valid[other] && s->off[other] == next))
+                ra_issue(s, other, next);
+        }
+        avail = s->off[b] + s->len[b] - s->position;
+        n = (uint32_t)(wanted - done) < avail ? (uint32_t)(wanted - done) : avail;
+        memcpy(dst + done, ra_buf[b] + (s->position - s->off[b]), n);
+        done += n; s->position += n;
+    }
+    return (ssize_t)done;
+}
+static int ra_seek(void *cookie, pal_cookie_offset *offset, int whence);
+static int ra_close(void *cookie)
+{
+    ra_wait_idle();
+    if (ra_owner == cookie) ra_owner = NULL;
+    free(cookie);
+    --open_assets;
+    return 0;
+}
+#endif
 static ssize_t asset_read(void *cookie, char *dst, size_t wanted)
 {
     asset_stream *s = cookie;
@@ -213,6 +330,9 @@ static ssize_t asset_read(void *cookie, char *dst, size_t wanted)
     uint32_t remaining = s->entry->size - s->position;
     if (wanted > remaining) wanted = remaining;
     if (!wanted) return 0;
+#ifndef PAL_POCKET_FILES_HOST
+    ra_wait_idle();
+#endif
     if (fseek(archive, (long)(s->entry->offset + s->position), SEEK_SET)) return -1;
     got = fread(dst, 1, wanted, archive);
     s->position += (uint32_t)got;
@@ -531,5 +651,33 @@ void PAL_PocketResolveMessageFile(void)
     if (!name && (found = PAL_PocketFindAssetSuffix(".msg")) != NULL) name = strdup(found);
     FLOG("msgfile: settings slot had none; using %s", name ? name : "(none found)");
     if (name) { free(gConfig.pszMsgFile); gConfig.pszMsgFile = name; }
+}
+#endif
+
+#ifndef PAL_POCKET_FILES_HOST
+static int ra_seek(void *cookie, pal_cookie_offset *offset, int whence)
+{
+    ra_stream *s = cookie;
+    return seek_position(&s->position, s->entry->size, s->entry->size, offset, whence);
+}
+FILE *PAL_PocketOpenAssetReadAhead(const char *name)
+{
+    char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
+    const asset_entry *entry;
+    ra_stream *stream;
+    FILE *file;
+    cookie_io_functions_t io = { ra_read, NULL, ra_seek, ra_close };
+    if (!ra_init() || ra_owner) return PAL_PocketOpenAsset(name);
+    if (normalize(name, canonical) || !archive) return PAL_PocketOpenAsset(name);
+    entry = find_asset(canonical);
+    if (!entry) return NULL;
+    stream = calloc(1, sizeof(*stream));
+    if (!stream) return NULL;
+    stream->entry = entry;
+    file = fopencookie(stream, "rb", io);
+    if (!file) { free(stream); return NULL; }
+    ra_owner = stream;
+    ++open_assets;
+    return file;
 }
 #endif

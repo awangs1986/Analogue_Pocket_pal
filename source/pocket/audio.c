@@ -327,6 +327,20 @@ void PAL_PocketAudioPump(void)
     ++diagnostics.pump_calls;
     PAL_PocketAudioDrain();
     stats = ppa_get_stats(music);
+    {
+        static uint32_t last_loops, last_underruns;
+        if (stats->loops != last_loops) {
+            PAL_PocketLog("music loop: track %d loops=%lu max_decode=%luus gap_max=%luus sw_underruns=+%lu hw_starve=%lu queued=%lu",
+                current_track, (unsigned long)stats->loops, (unsigned long)diagnostics.max_decode_us,
+                (unsigned long)diagnostics.max_pump_gap_us,
+                (unsigned long)(stats->underrun_reads - last_underruns),
+                (unsigned long)diagnostics.hardware_starvations, (unsigned long)ppa_queued(music));
+            last_loops = stats->loops;
+            last_underruns = stats->underrun_reads;
+            diagnostics.max_decode_us = 0;
+            diagnostics.max_pump_gap_us = 0;
+        }
+    }
     diagnostics.software_underruns = stats->underrun_reads;
     diagnostics.source_rate = stats->source_rate;
     diagnostics.source_channels = stats->source_channels;

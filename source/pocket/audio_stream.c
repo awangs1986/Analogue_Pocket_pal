@@ -20,7 +20,7 @@ struct ppa_stream {
     vorbis_dsp_state dsp;
     vorbis_block block;
     unsigned initialized, headers, header_bytes, packet_bytes;
-    int serial, eos, loop;
+    int serial, eos, loop, skip_headers;
     ppa_state state;
     const char *error;
     uint64_t pass_frames;
@@ -57,6 +57,7 @@ static int codec_begin(ppa_stream *s)
     codec_clear(s);
     s->headers = s->header_bytes = s->packet_bytes = 0;
     s->eos = 0;
+    s->skip_headers = 0;
     s->pass_frames = 0;
     s->phase = 0;
     s->have_previous = s->have_current = s->final_interval = 0;
@@ -66,6 +67,26 @@ static int codec_begin(ppa_stream *s)
     vorbis_comment_init(&s->comment);
     s->initialized |= INIT_INFO;
     s->state = PPA_HEADERS;
+    return 0;
+}
+
+/* Seamless loop: keep the set-up decoder (codebooks are expensive to build
+ * on the Pocket CPU), restart synthesis and skip the 3 header packets of the
+ * rewound stream instead of tearing everything down. */
+static int codec_loop(ppa_stream *s)
+{
+    if (!(s->initialized & INIT_DSP) || !(s->initialized & INIT_SYNC)) return codec_begin(s);
+    ogg_sync_reset(&s->sync);
+    if (s->initialized & INIT_STREAM) {
+        ogg_stream_clear(&s->ogg);
+        s->initialized &= ~INIT_STREAM;
+    }
+    vorbis_synthesis_restart(&s->dsp);
+    s->skip_headers = 3;
+    s->eos = 0;
+    s->final_interval = 0;
+    s->packet_bytes = 0;
+    s->state = PPA_PLAYING;
     return 0;
 }
 
@@ -135,6 +156,7 @@ static int source_frame(ppa_stream *s, float stereo[2], unsigned *budget)
                 if (packet.bytes < 0 || (unsigned long)packet.bytes > PPA_PACKET_LIMIT)
                     return fail(s, "Ogg packet exceeds 256 KiB limit");
                 s->packet_bytes = 0;
+                if (s->skip_headers) { --s->skip_headers; continue; }
                 if (s->headers < 3) {
                     s->header_bytes += (unsigned)packet.bytes;
                     if (s->header_bytes > PPA_PACKET_LIMIT)
@@ -261,7 +283,7 @@ size_t ppa_pump(ppa_stream *s, size_t frame_budget, unsigned step_budget)
             if (!s->loop) { s->state = PPA_FINISHED; break; }
             if (fseek(s->file, 0, SEEK_SET)) { fail(s, "Ogg loop rewind failed"); break; }
             ++s->stats.loops;
-            if (codec_begin(s)) break;
+            if (codec_loop(s)) break;
         }
     }
     return produced;

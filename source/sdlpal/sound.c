@@ -831,6 +831,10 @@ SOUND_Play(
 	//
 	// Get the length of the sound file.
 	//
+#if defined(__POCKET__)
+	extern uint32_t PAL_PocketTimeUs(void);
+	uint32_t sfx_t0 = PAL_PocketTimeUs(), sfx_t1 = 0;
+#endif
 	len = PAL_MKFGetChunkSize(iSoundNum, player->mkf);
 	if (len <= 0)
 	{
@@ -847,6 +851,9 @@ SOUND_Play(
 	// Read the sound file from the MKF archive.
 	//
 	PAL_MKFReadChunk(buf, len, iSoundNum, player->mkf);
+#if defined(__POCKET__)
+	sfx_t1 = PAL_PocketTimeUs();
+#endif
 
 	snddata = player->LoadSound(buf, len, &wavespec);
 	if (snddata == NULL)
@@ -874,6 +881,8 @@ SOUND_Play(
 	{
 		cached = PAL_PocketSfxAcquire(iSoundNum, snddata, wavespec.size,
 			wavespec.format == AUDIO_S16 ? 16 : 8, wavespec.channels, wavespec.freq, devspec->freq);
+		PLOG("SFX first play %d: %d bytes, read %u us, resample %u us", iSoundNum, len,
+			(unsigned)(sfx_t1 - sfx_t0), (unsigned)(PAL_PocketTimeUs() - sfx_t1));
 		if (cached)
 		{
 			free(buf);

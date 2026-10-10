@@ -701,7 +701,12 @@ PAL_PlayAVI(
 	//
 	// Open the file
 	//
+#if defined(__POCKET__)
+	extern FILE *PAL_PocketOpenAssetReadAhead(const char *name);
+	FILE *fp = PAL_PocketOpenAssetReadAhead(lpszPath);
+#else
 	FILE *fp = UTIL_OpenFile(lpszPath);
+#endif
 	if (fp == NULL)
 	{
 		UTIL_LogOutput(LOGLEVEL_WARNING, "Cannot open AVI file: %s!\n", lpszPath);
@@ -709,7 +714,7 @@ PAL_PlayAVI(
 	}
 #if defined(__POCKET__) && defined(PAL_POCKET_AVI_FAST)
 	/* One SD bridge transaction per 64 KiB instead of per 1 KiB stdio refill. */
-	static char avi_iobuf[64 * 1024] __attribute__((aligned(64)));
+	static char avi_iobuf[16 * 1024] __attribute__((aligned(64)));
 	setvbuf(fp, avi_iobuf, _IOFBF, sizeof(avi_iobuf));
 #endif
 
