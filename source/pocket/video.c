@@ -124,6 +124,7 @@ VOID VIDEO_RenderCopy(VOID)
                       0, 0, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT);
     of_video_flush();
     of_video_flip();
+    { extern void PAL_PocketNotePresent(void); PAL_PocketNotePresent(); }
     PAL_PocketAudioPump();
 }
 
@@ -154,6 +155,7 @@ VOID VIDEO_SetPalette(SDL_Color colors[256])
     SDL_SetPaletteColors(g_palette, colors, 0, PAL_POCKET_COLORS);
     /* Palette-only fades must be visible without another pixel update. */
     upload_palette();
+    { extern void PAL_PocketNotePresent(void); PAL_PocketNotePresent(); }
     PAL_PocketAudioPump();
 }
 

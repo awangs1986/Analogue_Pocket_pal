@@ -3200,6 +3200,10 @@ PAL_RunTriggerScript(
    while (wScriptEntry != 0 && !fEnded)
    {
       pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
+#if defined(__POCKET__)
+      { extern void PAL_PocketScriptTick(unsigned, unsigned, unsigned, unsigned, unsigned);
+        PAL_PocketScriptTick(wScriptEntry, pScript->wOperation, pScript->rgwOperand[0], pScript->rgwOperand[1], pScript->rgwOperand[2]); }
+#endif
 
       UTIL_LogOutput(LOGLEVEL_DEBUG, "[SCRIPT] %.4x: %.4x %.4x %.4x %.4x\n", wScriptEntry,
          pScript->wOperation, pScript->rgwOperand[0],

@@ -90,6 +90,7 @@ void __wrap_SDL_Delay(Uint32 ms)
         PAL_PocketPrefetchPump();
         if (ms) __real_SDL_Delay(1);
         PAL_PocketLogHeartbeat("delay");
+        { extern void PAL_PocketStallCheck(void); PAL_PocketStallCheck(); }
     } while ((Uint32)(SDL_GetTicks() - start) < ms);
 }
 /* Upstream save API ignores I/O return values; never silently report failure. */

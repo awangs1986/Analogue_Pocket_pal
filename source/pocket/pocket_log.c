@@ -121,3 +121,29 @@ void PAL_PocketLogBootDone(void)
 }
 
 const char *PAL_PocketLogLast(void) { return g_last; }
+
+/* ---- stall diagnostics: slow script instructions and gaps between presents ---- */
+uint32_t PAL_PocketTimeUs(void);
+static uint32_t st_present_us, st_presents, st_stall_reported;
+static unsigned st_entry, st_op, st_a, st_b, st_c, st_valid;
+static uint32_t st_t0, st_p0;
+void PAL_PocketNotePresent(void) { st_present_us = PAL_PocketTimeUs(); ++st_presents; st_stall_reported = 0; }
+void PAL_PocketScriptTick(unsigned entry, unsigned op, unsigned a, unsigned b, unsigned c)
+{
+    uint32_t now = PAL_PocketTimeUs();
+    if (st_valid && now - st_t0 > 150000u)
+        PAL_PocketLog("slow script #%u op %04x(%u,%u,%u): %lu ms, %lu presents", st_entry, st_op, st_a, st_b, st_c,
+                      (unsigned long)((now - st_t0) / 1000), (unsigned long)(st_presents - st_p0));
+    st_entry = entry; st_op = op; st_a = a; st_b = b; st_c = c; st_valid = 1;
+    st_t0 = PAL_PocketTimeUs(); st_p0 = st_presents;
+}
+void PAL_PocketStallCheck(void)
+{
+    uint32_t now = PAL_PocketTimeUs();
+    if (!st_present_us || st_stall_reported) return;
+    if (now - st_present_us > 400000u) {
+        st_stall_reported = 1;
+        PAL_PocketLog("stall: no frame for %lu ms (script #%u op %04x(%u,%u,%u))",
+                      (unsigned long)((now - st_present_us) / 1000), st_entry, st_op, st_a, st_b, st_c);
+    }
+}
