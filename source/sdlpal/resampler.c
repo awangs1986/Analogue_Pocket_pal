@@ -56,6 +56,28 @@ static int fEqual(const float b, const float a)
     return fabs(a - b) < 1.0e-6;
 }
 
+/* rv32imafc has no double FPU: build the tables in float (was ~3.9 s). */
+#if defined(__POCKET__)
+/* Pure single-precision sine (musl sinf still uses double internally,
+ * which is software-emulated here). |error| < 1e-6 after reduction. */
+static float pocket_sin(float x)
+{
+    const float pi = 3.14159265f;
+    float k = x / pi, r, r2, v;
+    int ki = (int)(k >= 0 ? k + 0.5f : k - 0.5f);
+    r = x - (float)ki * pi;
+    r2 = r * r;
+    v = r * (1.0f + r2 * (-1.0f / 6 + r2 * (1.0f / 120 + r2 * (-1.0f / 5040 + r2 * (1.0f / 362880)))));
+    return (ki & 1) ? -v : v;
+}
+#define sin(v) pocket_sin((float)(v))
+#define cos(v) pocket_sin((float)(v) + 1.57079633f)
+#undef M_PI
+#define M_PI 3.14159265f
+typedef float resampler_init_real;
+#else
+typedef double resampler_init_real;
+#endif
 static float sinc(float x)
 {
     return fEqual(x, 0.0f) ? 1.0f : (float)(sin(x * M_PI) / (x * M_PI));
@@ -550,7 +572,7 @@ static resampler_run resampler_run_sinc = resampler_run_sinc_c;
 void resampler_init(void)
 {
     unsigned i;
-    double dx = (float)(SINC_WIDTH) / SINC_SAMPLES, x = 0.0;
+    resampler_init_real dx = (float)(SINC_WIDTH) / SINC_SAMPLES, x = 0.0;
     for (i = 0; i < SINC_SAMPLES + 1; ++i, x += dx)
     {
         float y = x / SINC_WIDTH;

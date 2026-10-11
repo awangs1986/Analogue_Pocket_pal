@@ -2,7 +2,9 @@
  * SDLPAL openfpgaOS video backend. Transitions follow sdlpal/video.c,
  * Copyright (c) 2009-2011 Wei Mingzhi and 2011-2026 SDLPAL contributors.
  */
+#include "files.h"
 #include "main.h"
+#include "pocket_log.h"
 #include "of_video.h"
 #include "video_pixels.h"
 
@@ -15,6 +17,13 @@ volatile BOOL g_bRenderPaused = FALSE;
 static SDL_Palette *g_palette;
 static WORD g_shake_time, g_shake_level;
 static int g_ready;
+/* AVI (PAL98 1-6.avi, 288x180 RGB555) temporarily owns the display.
+ * Preferred: switch the openfpgaOS framebuffer to 320x200 RGB555 (the
+ * scanout supports direct color; same 320x200 scaler slot). Fallback when
+ * the runtime refuses that mode: stay 8-bit and quantize each frame to a
+ * fixed 3-3-2 palette with 4x4 ordered dithering. */
+enum { AVI_OFF, AVI_RGB555, AVI_DITHER332 };
+static int g_avi_mode = AVI_OFF;
 
 static int native_surface(const SDL_Surface *surface)
 {
@@ -35,7 +44,7 @@ static void upload_palette(void)
 {
     uint32_t colors[PAL_POCKET_COLORS];
     unsigned i;
-    if (!g_ready || !g_palette) return;
+    if (!g_ready || !g_palette || g_avi_mode == AVI_DITHER332) return;
     for (i = 0; i < PAL_POCKET_COLORS; ++i) {
         SDL_Color c = g_palette->colors[i];
         colors[i] = PAL_PocketRGB(c.r, c.g, c.b);
@@ -50,12 +59,14 @@ INT VIDEO_Startup(VOID)
     };
     of_video_mode_t actual;
     if (g_ready) return 0;
+    PAL_PocketLog("VIDEO: set 320x200 8bit");
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0 ||
         of_video_check_mode(&requested, NULL) != 0 ||
         of_video_set_mode(&requested) != 0 || !native_mode(&actual)) {
         UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket requires native 320x200 indexed video; runtime mode unavailable.\n");
         return -1;
     }
+    PAL_PocketLog("VIDEO: mode %ux%u stride %u color %u", actual.width, actual.height, actual.stride, actual.color_mode);
     gpScreen = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
     gpScreenBak = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
     gpScreenReal = SDL_CreateRGBSurface(SDL_SWSURFACE, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, 8, 0, 0, 0, 0);
@@ -92,12 +103,15 @@ VOID VIDEO_Shutdown(VOID)
     g_shake_time = g_shake_level = 0;
 }
 
+void PAL_PocketVideoRestorePalette(void) { upload_palette(); VIDEO_RenderCopy(); }
 VOID VIDEO_RenderCopy(VOID)
 {
     of_video_mode_t mode;
     uint8_t *frame;
     PAL_PocketAudioPump();
-    if (!g_ready || g_bRenderPaused) return;
+    PAL_PocketLogHeartbeat("render");
+    PAL_PocketPrefetchPump();
+    if (!g_ready || g_bRenderPaused || g_avi_mode != AVI_OFF) return;
     if (!native_mode(&mode)) {
         UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket video mode changed unexpectedly; refusing to scale the game canvas.\n");
         return;
@@ -110,6 +124,7 @@ VOID VIDEO_RenderCopy(VOID)
                       0, 0, PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT);
     of_video_flush();
     of_video_flip();
+    { extern void PAL_PocketNotePresent(void); PAL_PocketNotePresent(); }
     PAL_PocketAudioPump();
 }
 
@@ -140,6 +155,7 @@ VOID VIDEO_SetPalette(SDL_Color colors[256])
     SDL_SetPaletteColors(g_palette, colors, 0, PAL_POCKET_COLORS);
     /* Palette-only fades must be visible without another pixel update. */
     upload_palette();
+    { extern void PAL_PocketNotePresent(void); PAL_PocketNotePresent(); }
     PAL_PocketAudioPump();
 }
 
@@ -224,10 +240,50 @@ SDL_Surface *VIDEO_DuplicateSurface(SDL_Surface *source, const SDL_Rect *rect)
     return result;
 }
 
+/* aviplay.c's MS Video1 decoder always stores RGB555 words with a row
+ * stride of pitch/2 pixels. The SDK SDL shim tags any non-8-bit surface as
+ * 32-bit RGB888 (twice the pitch needed), so only the geometry is checked. */
+static int rgb555_surface(const SDL_Surface *s)
+{
+    return s && s->pixels && s->format && s->format->BitsPerPixel > 8 &&
+        s->w > 0 && s->h > 0 && s->w <= PAL_POCKET_WIDTH && s->h <= PAL_POCKET_HEIGHT &&
+        s->pitch >= s->w * 2;
+}
+
+static void draw_avi_frame(const SDL_Surface *surface)
+{
+    of_video_mode_t mode;
+    uint8_t *frame;
+    PAL_PocketAudioPump();
+    if (!g_ready || g_bRenderPaused) return;
+    of_video_get_mode(&mode);
+    frame = of_video_surface();
+    if (!frame) return;
+    if (g_avi_mode == AVI_RGB555) {
+        if (mode.color_mode != OF_VIDEO_MODE_RGB555 || mode.width != PAL_POCKET_WIDTH ||
+            mode.height != PAL_POCKET_HEIGHT) return;
+        PAL_PocketBlitRGB555(frame, mode.stride, surface->pixels, (size_t)(surface->pitch / 2) * 2,
+                             surface->w, surface->h);
+    } else {
+        if (!native_mode(&mode)) return;
+        PAL_PocketBlitDither332(frame, mode.stride, surface->pixels, surface->pitch,
+                                surface->w, surface->h);
+    }
+    of_video_flush();
+    of_video_flip();
+    PAL_PocketAudioPump();
+}
+
 VOID VIDEO_DrawSurfaceToScreen(SDL_Surface *surface)
 {
+    if (g_avi_mode != AVI_OFF && rgb555_surface(surface)) {
+        draw_avi_frame(surface);
+        return;
+    }
     if (!native_surface(surface)) {
-        UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket supports only 320x200 indexed frames; truecolor AVI is disabled.\n");
+        UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket: unsupported surface for display (%d bpp %dx%d).\n",
+            surface && surface->format ? surface->format->BitsPerPixel : 0,
+            surface ? surface->w : 0, surface ? surface->h : 0);
         return;
     }
     draw_native(surface, 0);
@@ -236,10 +292,61 @@ VOID VIDEO_DrawSurfaceToScreen(SDL_Surface *surface)
 /* These desktop controls cannot change the native canvas. */
 VOID VIDEO_Resize(INT w, INT h) { (void)w; (void)h; }
 VOID VIDEO_ToggleFullscreen(VOID) {}
+static int set_native_mode(void)
+{
+    of_video_mode_t requested = {
+        PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, PAL_POCKET_WIDTH, OF_VIDEO_MODE_8BIT, 0
+    };
+    of_video_mode_t actual;
+    return of_video_set_mode(&requested) == 0 && native_mode(&actual) ? 0 : -1;
+}
+
+/* aviplay.c: surface depth (>8) before the first frame, 0 when it ends. */
 VOID VIDEO_ChangeDepth(INT bpp)
 {
-    if (bpp != 0 && bpp != 8)
-        UTIL_LogOutput(LOGLEVEL_WARNING, "Pocket output stays 8-bit indexed (requested %d bpp).\n", bpp);
+    if (!g_ready) return;
+    if (bpp > 8) {
+        of_video_mode_t requested = {
+            PAL_POCKET_WIDTH, PAL_POCKET_HEIGHT, PAL_POCKET_WIDTH * 2, OF_VIDEO_MODE_RGB555, 0
+        };
+        of_video_mode_t actual;
+        if (g_avi_mode != AVI_OFF) return;
+#ifndef PAL_POCKET_AVI_FORCE_DITHER
+        if (of_video_check_mode(&requested, NULL) == 0 && of_video_set_mode(&requested) == 0) {
+            of_video_get_mode(&actual);
+            if (actual.color_mode == OF_VIDEO_MODE_RGB555 && actual.width == PAL_POCKET_WIDTH &&
+                actual.height == PAL_POCKET_HEIGHT && actual.stride >= PAL_POCKET_WIDTH * 2) {
+                PAL_PocketLog("VIDEO: AVI RGB555 mode");
+                g_avi_mode = AVI_RGB555;
+                UTIL_LogOutput(LOGLEVEL_INFO, "Pocket AVI: 320x200 RGB555 framebuffer\n");
+                return;
+            }
+        }
+#endif
+        /* Restore the indexed mode and dither instead. */
+        if (set_native_mode() != 0) {
+            UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket AVI: cannot restore indexed mode\n");
+            return;
+        }
+        {
+            uint32_t colors[PAL_POCKET_COLORS];
+            PAL_PocketPalette332(colors);
+            of_video_palette_bulk(colors, PAL_POCKET_COLORS);
+        }
+        PAL_PocketLog("VIDEO: AVI dither332 mode");
+        g_avi_mode = AVI_DITHER332;
+        UTIL_LogOutput(LOGLEVEL_WARNING, "Pocket AVI: RGB555 unavailable, using 3-3-2 dithered palette\n");
+        return;
+    }
+    if (bpp == 0 || bpp == 8) {
+        if (g_avi_mode == AVI_OFF) return;
+        g_avi_mode = AVI_OFF;
+        if (set_native_mode() != 0)
+            UTIL_LogOutput(LOGLEVEL_ERROR, "Pocket AVI: cannot restore 320x200 indexed mode\n");
+        upload_palette();
+        VIDEO_RenderCopy();
+        return;
+    }
 }
 VOID VIDEO_SaveScreenshot(VOID)
 {

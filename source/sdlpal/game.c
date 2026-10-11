@@ -20,6 +20,12 @@
 //
 
 #include "main.h"
+#if defined(__POCKET__)
+#include "pocket_log.h"
+#define PLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define PLOG(...) ((void)0)
+#endif
 
 VOID
 PAL_GameMain(
@@ -45,7 +51,12 @@ PAL_GameMain(
    //
    // Show the opening menu.
    //
+#if defined(__POCKET__)
+   PAL_PocketLogBootDone();
+#endif
+   PLOG("GameMain: OpeningMenu");
    gpGlobals->bCurrentSaveSlot = (BYTE)PAL_OpeningMenu();
+   PLOG("GameMain: OpeningMenu -> slot %d", (int)gpGlobals->bCurrentSaveSlot);
    gpGlobals->fInMainGame = TRUE;
 
    //

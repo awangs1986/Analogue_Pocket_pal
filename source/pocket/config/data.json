@@ -122,6 +122,18 @@
         "extensions": [
           "sav"
         ]
+      },
+      {
+        "id": 15,
+        "name": "PAL Debug Log",
+        "required": false,
+        "parameters": "0x84",
+        "nonvolatile": true,
+        "address": "0x20240000",
+        "size_maximum": "0x40000",
+        "extensions": [
+          "log"
+        ]
       }
     ]
   }

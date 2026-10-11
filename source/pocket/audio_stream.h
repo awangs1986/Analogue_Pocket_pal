@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 #define PPA_OUTPUT_RATE 48000u
-#define PPA_RING_FRAMES 8192u
+#define PPA_RING_FRAMES 24576u /* ~0.5 s: rides over SD stalls and loop points */
 #define PPA_READ_BYTES 4096u
 #define PPA_PACKET_LIMIT (256u * 1024u)
 

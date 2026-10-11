@@ -20,6 +20,12 @@
 //
 
 #include "main.h"
+#if defined(__POCKET__)
+#include "pocket_log.h"
+#define PLOG(...) PAL_PocketLog(__VA_ARGS__)
+#else
+#define PLOG(...) ((void)0)
+#endif
 #include <setjmp.h>
 
 #if SDL_VERSION_ATLEAST(3,0,0)
@@ -77,13 +83,17 @@ PAL_Init(
    //
    // Initialize subsystems.
    //
+   PLOG("PAL_Init: InitGlobals");
    e = PAL_InitGlobals();
+   PLOG("PAL_Init: InitGlobals=%d WIN95=%d msgfile=%s", e, (int)gConfig.fIsWIN95, gConfig.pszMsgFile ? gConfig.pszMsgFile : "(none)");
    if (e != 0)
    {
 	   TerminateOnError("Could not initialize global data: %d.\n", e);
    }
 
+   PLOG("PAL_Init: VIDEO_Startup");
    e = VIDEO_Startup();
+   PLOG("PAL_Init: VIDEO_Startup=%d", e);
    if (e != 0)
    {
       TerminateOnError("Could not initialize Video: %d.\n", e);
@@ -91,28 +101,39 @@ PAL_Init(
 
    VIDEO_SetWindowTitle("Loading...");
 
+   PLOG("PAL_Init: InitUI");
    e = PAL_InitUI();
+   PLOG("PAL_Init: InitUI=%d", e);
    if (e != 0)
    {
       TerminateOnError("Could not initialize UI subsystem: %d.\n", e);
    }
 
+   PLOG("PAL_Init: InitText");
    e = PAL_InitText();
+   PLOG("PAL_Init: InitText=%d", e);
    if (e != 0)
    {
       TerminateOnError("Could not initialize text subsystem: %d.\n", e);
    }
 
+   PLOG("PAL_Init: InitFont");
    e = PAL_InitFont(&gConfig);
+   PLOG("PAL_Init: InitFont=%d", e);
    if (e != 0)
    {
       TerminateOnError("Could not load fonts: %d.\n", e);
    }
 
+   PLOG("PAL_Init: InitInput");
    PAL_InitInput();
+   PLOG("PAL_Init: InitResources");
    PAL_InitResources();
-   AUDIO_OpenDevice();
+   PLOG("PAL_Init: AUDIO_OpenDevice");
+   { int ae = AUDIO_OpenDevice(); PLOG("PAL_Init: AUDIO_OpenDevice=%d", ae); }
+   PLOG("PAL_Init: AVIInit");
    PAL_AVIInit();
+   PLOG("PAL_Init: done");
 
    VIDEO_SetWindowTitle(UTIL_va(UTIL_GlobalBuffer(0), PAL_GLOBAL_BUFFER_SIZE,
 	   "Pal %s%s%s%s",
@@ -537,7 +558,9 @@ main(
 	   TerminateOnError("Could not initialize SDL: %s.\n", SDL_GetError());
    }
 
+   PLOG("main: SDL_Init ok, LoadConfig");
    PAL_LoadConfig(TRUE);
+   PLOG("main: LoadConfig done msgfile=%s", gConfig.pszMsgFile ? gConfig.pszMsgFile : "(none)");
 
    //
    // Platform-specific initialization
@@ -572,8 +595,11 @@ main(
    //
    // Show the trademark screen and splash screen
    //
+   PLOG("main: TrademarkScreen");
    PAL_TrademarkScreen();
+   PLOG("main: SplashScreen");
    PAL_SplashScreen();
+   PLOG("main: GameMain");
 
    //
    // Run the main game routine

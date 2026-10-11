@@ -74,4 +74,50 @@ static inline void PAL_PocketTransitionStep(uint8_t *dst, size_t dp,
         dst[y * dp + x] = b;
     }
 }
+/* AVI frames (RGB555, at most 320x200) centred on a black 320x200 canvas. */
+static inline void PAL_PocketBlitRGB555(uint8_t *dst, size_t dp,
+    const void *src, size_t sp, int w, int h)
+{
+    int x0 = (PAL_POCKET_WIDTH - w) / 2, y0 = (PAL_POCKET_HEIGHT - h) / 2, row;
+    if (!dst || !src || w <= 0 || h <= 0 || w > PAL_POCKET_WIDTH ||
+        h > PAL_POCKET_HEIGHT || dp < PAL_POCKET_WIDTH * 2) return;
+    for (row = 0; row < PAL_POCKET_HEIGHT; ++row) {
+        uint8_t *d = dst + (size_t)row * dp;
+        if (row < y0 || row >= y0 + h) { memset(d, 0, PAL_POCKET_WIDTH * 2); continue; }
+        memset(d, 0, (size_t)x0 * 2);
+        memcpy(d + (size_t)x0 * 2, (const uint8_t *)src + (size_t)(row - y0) * sp, (size_t)w * 2);
+        memset(d + (size_t)(x0 + w) * 2, 0, (size_t)(PAL_POCKET_WIDTH - x0 - w) * 2);
+    }
+}
+
+/* Fallback palette: index = RRRGGGBB. */
+static inline void PAL_PocketPalette332(uint32_t colors[PAL_POCKET_COLORS])
+{
+    unsigned i;
+    for (i = 0; i < PAL_POCKET_COLORS; ++i) {
+        unsigned r = (i >> 5) & 7, g = (i >> 2) & 7, b = i & 3;
+        colors[i] = PAL_PocketRGB((uint8_t)(r * 255 / 7), (uint8_t)(g * 255 / 7), (uint8_t)(b * 255 / 3));
+    }
+}
+
+/* RGB555 -> 3-3-2 with a 4x4 Bayer threshold (fixed palette, no search). */
+static inline void PAL_PocketBlitDither332(uint8_t *dst, size_t dp,
+    const void *src, size_t sp, int w, int h)
+{
+    static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    int x0 = (PAL_POCKET_WIDTH - w) / 2, y0 = (PAL_POCKET_HEIGHT - h) / 2, x, y;
+    if (!dst || !src || w <= 0 || h <= 0 || w > PAL_POCKET_WIDTH || h > PAL_POCKET_HEIGHT) return;
+    for (y = 0; y < PAL_POCKET_HEIGHT; ++y) memset(dst + (size_t)y * dp, 0, PAL_POCKET_WIDTH);
+    for (y = 0; y < h; ++y) {
+        const uint8_t *s = (const uint8_t *)src + (size_t)y * sp;
+        uint8_t *d = dst + (size_t)(y + y0) * dp + x0;
+        for (x = 0; x < w; ++x) {
+            unsigned v = s[2 * x] | (s[2 * x + 1] << 8), t = bayer[(y + y0) & 3][(x + x0) & 3];
+            unsigned r = ((v >> 10) & 31) * 7 * 16 + t * 31, g = ((v >> 5) & 31) * 7 * 16 + t * 31;
+            unsigned b = (v & 31) * 3 * 16 + t * 31;
+            r /= 31 * 16; g /= 31 * 16; b /= 31 * 16;
+            d[x] = (uint8_t)(((r > 7 ? 7 : r) << 5) | ((g > 7 ? 7 : g) << 2) | (b > 3 ? 3 : b));
+        }
+    }
+}
 #endif

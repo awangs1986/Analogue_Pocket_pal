@@ -49,6 +49,10 @@
 /* build lookups for trig functions; also pre-figure scaling and
    some window function algebra. */
 
+/* Trig tables memoized per n: they are computed with double sin/cos, which
+   is soft-float on the Pocket's RV32F CPU (~0.1 s per OGG open). */
+static struct { int n; DATA_TYPE *T; } mdct_memo[4];
+
 void mdct_init(mdct_lookup *lookup,int n){
   int   *bitrev=_ogg_malloc(sizeof(*bitrev)*(n/4));
   DATA_TYPE *T=_ogg_malloc(sizeof(*T)*(n+n/4));
@@ -61,7 +65,11 @@ void mdct_init(mdct_lookup *lookup,int n){
   lookup->bitrev=bitrev;
 
 /* trig lookups... */
-
+  {
+    int m;
+    for(m=0;m<4;m++)
+      if(mdct_memo[m].n==n){ memcpy(T,mdct_memo[m].T,sizeof(*T)*(n+n/4)); goto trig_done; }
+  }
   for(i=0;i<n/4;i++){
     T[i*2]=FLOAT_CONV(cos((M_PI/n)*(4*i)));
     T[i*2+1]=FLOAT_CONV(-sin((M_PI/n)*(4*i)));
@@ -72,6 +80,16 @@ void mdct_init(mdct_lookup *lookup,int n){
     T[n+i*2]=FLOAT_CONV(cos((M_PI/n)*(4*i+2))*.5);
     T[n+i*2+1]=FLOAT_CONV(-sin((M_PI/n)*(4*i+2))*.5);
   }
+  {
+    int m;
+    for(m=0;m<4;m++)
+      if(!mdct_memo[m].n){
+        DATA_TYPE *c=_ogg_malloc(sizeof(*T)*(n+n/4));
+        if(c){ memcpy(c,T,sizeof(*T)*(n+n/4)); mdct_memo[m].T=c; mdct_memo[m].n=n; }
+        break;
+      }
+  }
+trig_done:
 
   /* bitreverse lookup... */
 

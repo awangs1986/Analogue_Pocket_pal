@@ -60,11 +60,12 @@ long _float32_pack(float val){
 }
 
 float _float32_unpack(long val){
-  double mant=val&0x1fffff;
+  /* float/ldexpf: exact (21-bit mantissa), avoids soft-double on RV32F */
+  float  mant=(float)(val&0x1fffff);
   int    sign=val&0x80000000;
   long   exp =(val&0x7fe00000L)>>VQ_FMAN;
   if(sign)mant= -mant;
-  return(ldexp(mant,exp-(VQ_FMAN-1)-VQ_FEXP_BIAS));
+  return(ldexpf(mant,exp-(VQ_FMAN-1)-VQ_FEXP_BIAS));
 }
 
 /* given a list of word lengths, generate a list of codewords.  Works
@@ -220,7 +221,7 @@ float *_book_unquantize(const static_codebook *b,int n,int *sparsemap){
           for(k=0;k<b->dim;k++){
             int index= (j/indexdiv)%quantvals;
             float val=b->quantlist[index];
-            val=fabs(val)*delta+mindel+last;
+            val=fabsf(val)*delta+mindel+last;
             if(b->q_sequencep)last=val;
             if(sparsemap)
               r[sparsemap[count]*b->dim+k]=val;
@@ -240,7 +241,7 @@ float *_book_unquantize(const static_codebook *b,int n,int *sparsemap){
 
           for(k=0;k<b->dim;k++){
             float val=b->quantlist[j*b->dim+k];
-            val=fabs(val)*delta+mindel+last;
+            val=fabsf(val)*delta+mindel+last;
             if(b->q_sequencep)last=val;
             if(sparsemap)
               r[sparsemap[count]*b->dim+k]=val;
