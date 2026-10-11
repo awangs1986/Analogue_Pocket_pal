@@ -61,8 +61,10 @@ void of_video_palette_bulk(const uint32_t *colors, int count)
         0x000000, 0x0000aa, 0x00aa00, 0x00aaaa, 0xaa0000, 0xaa00aa, 0xaa5500, 0xaaaaaa,
         0x555555, 0x5555ff, 0x55ff55, 0x55ffff, 0xff5555, 0xff55ff, 0xffff55, 0xffffff
     };
-    assert(display_mode == OF_DISPLAY_TERMINAL && count == 16);
-    assert(!memcmp(colors, terminal_colors, sizeof(terminal_colors)));
+    /* Fatal/message boxes fill all 256 entries with the 16 console colours. */
+    assert(display_mode == OF_DISPLAY_TERMINAL && (count == 16 || count == 256));
+    for (int k = 0; k < count; k += 16)
+        assert(!memcmp(colors + k, terminal_colors, sizeof(terminal_colors)));
     memcpy(hardware_colors, colors, sizeof(terminal_colors));
     ++palette_uploads;
 }

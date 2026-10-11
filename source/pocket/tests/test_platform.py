@@ -25,7 +25,7 @@ class PlatformTests(unittest.TestCase):
                 "-I" + str(POCKET / "tests/platform_stubs"), "-I" + str(POCKET),
                 "-I" + str(ROOT / "sdlpal"), "-I" + str(ROOT / "sdlpal/sdl_compat"),
                 "-I" + str(SDK / "src/sdk/include"), str(POCKET / "platform.c"),
-                str(POCKET / "tests/platform_backend_test.c"), "-o", str(exe),
+                str(POCKET / "tests/platform_backend_test.c"), str(POCKET / "tests/pocket_test_stubs.c"), "-o", str(exe),
             ]
             subprocess.run(command, check=True)
             result = subprocess.run([str(exe)], capture_output=True, text=True,

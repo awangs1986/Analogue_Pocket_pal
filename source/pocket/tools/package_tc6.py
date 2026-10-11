@@ -29,7 +29,7 @@ AUTHOR = "awangs1986"
 # own IDs so PAL98 saves/data never mix with the DOS install (same tc6-s16 bitstream).
 EDITIONS = {
     "dos": ("PALtc6", "sdlpaltc6", "SDLPAL TEST tc6-s16", "TEST tc6-s16 7c29497: NOT HW-verified, GPU stub"),
-    "pal98": ("PAL98tc6", "sdlpal98tc6", "SDLPAL98 TEST tc6-s16", "TEST PAL98 on tc6-s16: NOT HW-verified, GPU stub"),
+    "pal98": ("PAL98tc6", "sdlpal98tc6", "SDLPAL98 TEST tc6-s16", "TEST PAL98 on tc6-s16: HW-tested (AVI, SFX, OGG), GPU stub"),
 }
 CORE_SHORT, PLATFORM = EDITIONS["dos"][:2]
 CORE_ID = f"{AUTHOR}.{CORE_SHORT}"

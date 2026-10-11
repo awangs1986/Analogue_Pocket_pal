@@ -25,7 +25,7 @@ class VideoTests(unittest.TestCase):
                 "-I" + str(POCKET / "tests/video_stubs"), "-I" + str(POCKET),
                 "-I" + str(ROOT / "sdlpal"), "-I" + str(ROOT / "sdlpal/sdl_compat"),
                 "-I" + str(SDK / "src/sdk/include"), str(POCKET / "video.c"),
-                str(POCKET / "tests/video_backend_test.c"), "-o", str(exe),
+                str(POCKET / "tests/video_backend_test.c"), str(POCKET / "tests/pocket_test_stubs.c"), "-o", str(exe),
             ]
             subprocess.run(command, check=True)
             subprocess.run([str(exe)], check=True)

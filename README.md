@@ -7,6 +7,7 @@ VexiiRiscv RISC-V CPU 上（`rv32imafc`/`ilp32f`），FPGA 负责显示和 PCM �
 > 真机测试已经发现并修复了一个问题：核心目录缺 `variants.json` 时 Pocket 会报 “load error in variants”，
 > 现在打包脚本会自动带上它。其他功能（存档、Dock、显示模式等）还需要按测试清单逐项验证。
 
+- **两个版本**：DOS 版（繁体，`PAL_DOS/`）和 **PAL98 版（推荐：简体中文 + 开场 AVI 动画，`PAL98/`）**，见 [PAL98 版](#pal98-版简体中文--开场动画推荐)。
 - 原生 320×200 8 位索引色画面，Pocket 缩放器按 4:3 显示。
 - Ogg/Vorbis 音乐在 RISC-V CPU 上解码，48 kHz 立体声 PCM 输出（不是 FPGA 解码）。
 - 所有游戏资源打包成一个只读的 `pal.pak`；5 个存档位映射到 Pocket 的非易失存档。
@@ -22,6 +23,7 @@ VexiiRiscv RISC-V CPU 上（`rv32imafc`/`ilp32f`），FPGA 负责显示和 PCM �
 6. [从源码构建](#6-从源码构建)
 7. [存档](#7-存档)
 8. [已知限制](#8-已知限制)
+- [PAL98 版（简体中文 + 开场动画，推荐）](#pal98-版简体中文--开场动画推荐)
 9. [卸载](#9-卸载)
 10. [版权说明](#10-版权说明)
 
@@ -35,7 +37,8 @@ VexiiRiscv RISC-V CPU 上（`rv32imafc`/`ilp32f`），FPGA 负责显示和 PCM �
 
 ## 2. 从 Steam 提取游戏文件
 
-Steam 版安装目录下有三个子目录：`PAL/`、`PAL98/`、`PAL_DOS/`。**只用 `PAL_DOS/`**，也就是 DOS 原版（繁体中文，Big5 编码）。
+Steam 版安装目录下有三个子目录：`PAL/`、`PAL98/`、`PAL_DOS/`。本节说的是 **DOS 版**，只用 `PAL_DOS/`（繁体中文，Big5 编码）。
+想要简体中文和开场动画，请看 [PAL98 版](#pal98-版简体中文--开场动画推荐)，那个版本用 `PAL98/`。
 
 常见安装路径：
 
@@ -56,10 +59,9 @@ Steam 版安装目录下有三个子目录：`PAL/`、`PAL98/`、`PAL_DOS/`。**
 
 - Steam 里的文件名是大写的（如 `ABC.MKF`），复制时要**转成小写**。下面的脚本会自动处理。
 - **不需要**：`.exe`、声卡驱动和配置文件、`.rpg` 存档、CD 镜像、`MIDI.MKF`、`MUS.MKF`。本移植的音乐用 OGG，不用 MIDI/RIX。
-- 为什么不用 `PAL/` 和 `PAL98/`：
-  - `PAL98/` 是 Windows 95/98 版，资源和 DOS 版不同，还依赖 AVI 过场动画，本移植已关闭 AVI 播放；
-  - `PAL/` 是 Steam 新版的程序目录；
-  - 本移植的打包和测试都是按 `PAL_DOS/` 的数据做的。
+- DOS 版不用 `PAL/` 和 `PAL98/`：
+  - `PAL98/` 是 Windows 95/98 版，资源和 DOS 版不同，要用单独的 PAL98 核心和 `--edition pal98` 打包；
+  - `PAL/` 是 Steam 新版的程序目录。
 
 ## 3. 音乐：订阅 Steam 创意工坊
 
@@ -194,18 +196,76 @@ python3 source/pocket/tools/package_tc6.py --tc-core /path/to/tc6-core --out /pa
 ## 8. 已知限制
 
 - 测试版，**没有完成真机验收**（显示模式、Dock、存档持久化、长时间运行等都还要测）。
-- Windows 版的 AVI 过场动画不支持；不支持 MIDI/RIX/MP3/Opus 音乐，只支持 OGG。
+- AVI 动画只在 PAL98 核心里支持（MS Video1，RISC-V 软件解码）；不支持 MIDI/RIX/MP3/Opus 音乐，只支持 OGG。
 - tc6 测试核心的已知问题：
   - GPU 是空壳，只适用于 PAL；
   - build_id 为 0；
   - x_count 跨时钟域的 hold 余量很小，需要 RTL 修复；
   - 时序结果对 seed 敏感。
 
+## PAL98 版（简体中文 + 开场动画，推荐）
+
+PAL98 是 Steam 里 `PAL98/` 目录的 Windows 95/98 版数据。和 DOS 版相比：
+
+- **简体中文**：用 Steam 自带的 `MSG_chs.txt` / `WORD_chs.txt` 转换成 SDLPAL 的 UTF-8 文本，
+  配置里自动选内置简体字库（`FontFlavor=SimpChin`）。需要繁体就加 `--lang cht`。
+- **开场 AVI 动画**（`1.avi`…`6.avi`，MS Video1 + PCM）：播放时切到 RGB555 画面，音频重采样到 48 kHz，
+  SD 卡读取用异步预读。
+- **音效**用 Win95 版的 `sounds.mkf`（WAV，比 DOS 的 VOC 音质好），开机后在后台预读到内存，
+  第一次播放不再卡顿；重采样用定点 16 抽头多相 FIR（系数表在编译时生成，见 `source/pocket/tools/gen_resample_coef.c`）。
+- **音乐**同样用创意工坊的 OGG（推荐编曲版 2449282849）；PAL98 的 CD 音轨 `ogg/100NN.ogg` 默认一起打包。
+  循环播放不重开解码器，没有接缝停顿。
+
+**真机测试结果（tc6-s16 测试核心 + PAL98 简体包）**：开场 1/2/3.avi 流畅、音画同步，游戏内音效第一次播放不卡、
+音乐循环无停顿，简体中文显示正常。存档、Dock 等其余项目仍按测试清单验证。
+
+### 制作 PAL98 的 pal.pak
+
+```sh
+python3 source/pocket/tools/make_pal_pak_from_steam.py \
+  --pal-dir ~/.local/share/Steam/steamapps/common/PAL \
+  --edition pal98 \
+  --music arranged \
+  --out ./my-pal98-chs
+# 默认 --lang chs（简体）；繁体用 --lang cht；不要 CD 音轨用 --no-cd-tracks
+```
+
+脚本会从 `PAL98/` 复制 MKF、`sounds.mkf`、6 个 AVI，把 `MSG_chs.txt`/`WORD_chs.txt` 转成 `pal98_chs.msg`，
+写入 `sdlpal.cfg`（`MessageFileName=pal98_chs.msg`），再打包成 `<out>/pal.pak`（约 330 MB）。
+
+### PAL98 测试核心
+
+PAL98 用独立的核心 ID 和平台 ID，和 DOS 版可以同时安装、存档互不影响：
+
+| | PAL98 测试核心 |
+|---|---|
+| 核心 ID | `awangs1986.PAL98tc6` |
+| 平台 ID | `sdlpal98tc6` |
+| pal.pak 位置 | `Assets/sdlpal98tc6/common/pal.pak` |
+
+```sh
+# 1) 编译游戏 ELF（默认就是发布配置：AVI 开、快速 AVI 路径开）
+make -C source/pocket SDK_ROOT=/path/to/openfpgaSDK      # 输出 build/app.elf
+# 2) 打包核心目录（bitstream 用 tc6-s16 构建）
+python3 source/pocket/tools/package_tc6.py --edition pal98 --tc-core /path/to/tc6-core \
+  --elf source/pocket/build/app.elf --out /path/to/pal98-sd
+```
+
+把 `Cores/`、`Platforms/`、`Assets/` 复制到 SD 卡根目录，再把 PAL98 的 `pal.pak` 放到 `Assets/sdlpal98tc6/common/`。
+
+### 调试日志
+
+PAL98 核心会把启动和运行日志写到存档槽 `PAL_debug.log`（`Saves/sdlpal98tc6/...`，最多 240 KB）：
+启动各阶段、文件打开、AVI 每 30 帧的读取/解码耗时、音乐循环、音效首次播放、超过 150 ms 的脚本指令和
+超过 400 ms 没有刷新画面的卡顿。只在出现慢操作时才写，正常运行几乎没有开销。遇到问题请附上这个文件。
+屏幕上不显示日志（编译时加 `EXTRA_CFLAGS="-DPAL_POCKET_AVI_FAST -DPAL_POCKET_LOG_SCREEN"` 才会在启动时显示）。
+
 ## 9. 卸载
 
 删除 SD 卡上的这些目录：
 - 正式核心：`Cores/awangs1986.PAL/`、`Platforms/sdlpal.json`、`Assets/sdlpal/`；
-- tc6 核心：`Cores/awangs1986.PALtc6/`、`Platforms/sdlpaltc6.json`、`Assets/sdlpaltc6/`。
+- tc6 核心：`Cores/awangs1986.PALtc6/`、`Platforms/sdlpaltc6.json`、`Assets/sdlpaltc6/`；
+- PAL98 核心：`Cores/awangs1986.PAL98tc6/`、`Platforms/sdlpal98tc6.json`、`Assets/sdlpal98tc6/`。
 
 不再需要存档的话，再删 `Saves/` 下对应平台的目录（先备份）。
 
@@ -225,6 +285,7 @@ SDLPAL port for Analogue Pocket (RISC-V engine on openfpgaOS). **Test build, not
 - **Game data:** you need your own Steam copy of PAL (app 1546570). Use only `PAL_DOS/`: 13 MKF files (`abc ball data f fbp fire gop map mgo pat rgm rng sss`), `voc.mkf`, `m.msg`, `word.dat`, `wor16.asc` and `wor16.fon`, with lowercase names.
 - **Music:** subscribe to Workshop [2449282849 SDLPal Arranged Soundtracks](https://steamcommunity.com/sharedfiles/filedetails/?id=2449282849) (87 tracks, recommended) or [2433259482 PAL SC Soundtracks](https://steamcommunity.com/sharedfiles/filedetails/?id=2433259482) (86 tracks, no 29).
 - **Build pal.pak:** run `python3 source/pocket/tools/make_pal_pak_from_steam.py --pal-dir <steamapps/common/PAL> --music arranged --out <new dir>` and put the result in `Assets/sdlpal/common/pal.pak`.
+- **PAL98 edition (recommended):** `--edition pal98` builds a Simplified Chinese pak (default `--lang chs`) from `PAL98/` with the intro AVIs; use the `awangs1986.PAL98tc6` test core (`package_tc6.py --edition pal98`). Hardware-tested: smooth AVI, no first-SFX or music-loop hitches. A debug log is written to the `PAL_debug.log` save slot.
 - **Core:** build the bitstream yourself, see [BUILD_SPEC.md](BUILD_SPEC.md) and [README_构建交接.md](README_构建交接.md).
 - **Not included:** game assets, music, credentials and bitstreams.
 - See [provenance](SOURCE_PROVENANCE.md), [input manifest](handoff-manifest.json), [stored-parts inventory](input-parts.json), [dependencies](DEPENDENCIES.md) and [licenses](source/LICENSE.md).

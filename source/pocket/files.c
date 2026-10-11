@@ -389,6 +389,7 @@ static int ra_close(void *cookie)
     return 0;
 }
 #endif
+#ifndef PAL_POCKET_FILES_HOST
 int PAL_PocketPrefetchStart(const char *name)
 {
     char canonical[PAL_POCKET_ARCHIVE_NAME_SIZE];
@@ -443,6 +444,7 @@ static int pf_covered(const asset_entry *e, uint32_t pos, uint32_t len)
     for (b = pos / 65536u; b <= last; ++b) if (!pf_have[b]) return 0;
     return 1;
 }
+#endif /* !PAL_POCKET_FILES_HOST */
 static ssize_t asset_read(void *cookie, char *dst, size_t wanted)
 {
     asset_stream *s = cookie;

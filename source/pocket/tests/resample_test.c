@@ -72,7 +72,10 @@ int main(void)
         memset(u8, 128 + 64, sizeof u8);
         a = PAL_PocketSfxAcquire(1, u8, sizeof u8, 8, 1, 11025, 48000);
         assert(a && a->channels == 1 && a->frames == ppr_output_frames(sizeof u8, 11025, 48000));
-        assert(a->pcm[a->frames / 2] == 64 << 8 && drains >= (int)(a->frames / 4096));
+        /* first slice is converted at once, the rest progressively by the pump */
+        assert(a->pcm[100] == 64 << 8);
+        for (i = 0; i < 64; ++i) PAL_PocketSfxPump();
+        assert(a->pcm[a->frames / 2] == 64 << 8 && a->pcm[a->frames - 100] == 64 << 8);
         b = PAL_PocketSfxAcquire(1, NULL, 0, 0, 0, 0, 0);
         assert(b == a && a->refs == 2);
         PAL_PocketSfxRelease(b);

@@ -18,7 +18,7 @@ class ResampleTests(unittest.TestCase):
                 "-std=c99", "-D_GNU_SOURCE", "-O1", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-I" + str(POCKET), str(POCKET / "pocket_resample.c"), str(POCKET / "sfx_cache.c"),
-                str(POCKET / "tests/resample_test.c"), "-lm", "-o", str(exe)]
+                str(POCKET / "tests/resample_test.c"), str(POCKET / "tests/pocket_test_stubs.c"), "-lm", "-o", str(exe)]
             subprocess.run(command, check=True)
             result = subprocess.run([str(exe)], check=True, capture_output=True, text=True)
             self.assertIn("PASS", result.stdout)
